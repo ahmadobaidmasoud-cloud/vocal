@@ -370,25 +370,14 @@ export default function ResponderPage() {
             )}
             
             {survey.settings.voiceEnabled && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setIsMuted(!isMuted)}
-                  data-testid="button-mute-toggle"
-                >
-                  {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-                </Button>
-                
-                <Button
-                  variant={isListening ? 'default' : 'ghost'}
-                  size="icon"
-                  onClick={() => isListening ? stopListening() : startListening()}
-                  data-testid="button-mic-toggle"
-                >
-                  {isListening ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-                </Button>
-              </>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setIsMuted(!isMuted)}
+                data-testid="button-mute-toggle"
+              >
+                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </Button>
             )}
           </div>
 
