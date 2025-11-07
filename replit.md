@@ -138,9 +138,11 @@ npm run db:push  # مزامنة Database schema
   - 🔒 أمان: JWT tokens مؤقتة (60 دقيقة)، API key في backend فقط
   - 💰 Free tier: 8 ساعات/شهر، ثم $1.04/ساعة
 - **الـImplementation**:
-  - Backend: JWT token generation (server/services/speechmatics-jwt.ts)
-  - Frontend: WebSocket service (client/src/services/speechmatics.ts)
-  - Hook: useSpeechRecognition مع دعم partials + finals
+  - **SDK**: `@speechmatics/real-time-client` v8.2.0 (Official)
+  - **Backend**: JWT generation via Management API (server/services/speechmatics-jwt.ts)
+  - **Frontend Service**: RealtimeClient wrapper (client/src/services/speechmatics.ts)
+  - **Hook**: useSpeechRecognition مع partials + finals + confidence
+  - **Audio**: PCM S16 LE @ 16kHz via ScriptProcessorNode
 
 ### Text-to-Speech (TTS)
 - **الخدمة**: ElevenLabs API
@@ -154,14 +156,16 @@ npm run db:push  # مزامنة Database schema
 ✅ Task 3: Integration & Testing - مكتمل
 🚀 **Task 4: Speechmatics Upgrade** - مكتمل! (النسخة 2.0)
 
-## التحسينات المطبقة (v2.0 - Speechmatics)
-1. ✅ ترقية من Web Speech API إلى Speechmatics RT API
-2. ✅ دقة أعلى بـ18% للعربية + دعم أفضل للهجات
-3. ✅ Latency فائق: <500ms للـpartials، <1s للـfinals
-4. ✅ حل نهائي لمشكلة تكرار الكلمات
-5. ✅ أمان كامل: JWT tokens مؤقتة، API key محمي في backend
-6. ✅ UI محسّن: عرض partial transcripts + confidence scores
-7. ✅ إصلاح مشكلة اللغة في TTS (من v1.0)
+## التحسينات المطبقة (v2.0 - Speechmatics Official SDK)
+1. ✅ **SDK Integration**: استخدام `@speechmatics/real-time-client` v8.2.0 الرسمي
+2. ✅ **Accuracy Boost**: دقة أعلى بـ18% للعربية + دعم أفضل للهجات
+3. ✅ **Ultra-Low Latency**: <500ms للـpartials، <1s للـfinals
+4. ✅ **Word Deduplication**: حل نهائي لمشكلة تكرار الكلمات
+5. ✅ **Secure JWT**: temporary tokens (1 hour TTL) من Management API
+6. ✅ **Real-time UI**: عرض partial transcripts + confidence scores
+7. ✅ **Audio Format**: PCM S16 LE @ 16kHz streaming
+8. ✅ **Event Handling**: receiveMessage listener مع message type switching
+9. ✅ **Error Recovery**: تعامل ذكي مع not_authorised, insufficient_funds, etc.
 
 ## المراحل التالية
 - AI Cleanup لتصحيح أخطاء STT

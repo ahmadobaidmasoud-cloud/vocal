@@ -56,10 +56,10 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
       // Determine language code
       const lang = language.startsWith('ar') ? 'ar' : 'en';
 
-      // Create new Speechmatics service with secure token
+      // Create new Speechmatics service with secure JWT token
       serviceRef.current = new SpeechmaticsService({
         language: lang,
-        apiKey: token,
+        jwt: token,
         onPartialTranscript: (text, conf) => {
           setPartialTranscript(text);
           setConfidence(conf);

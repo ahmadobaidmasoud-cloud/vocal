@@ -1,9 +1,11 @@
 // Speechmatics Real-Time Speech Recognition Service
-// Uses WebSocket API directly for browser-based STT
+// Using Official @speechmatics/real-time-client SDK (v8.2.0)
+
+import { RealtimeClient } from '@speechmatics/real-time-client';
 
 export interface SpeechmaticsConfig {
   language: 'ar' | 'en';
-  apiKey: string;
+  jwt: string;
   onPartialTranscript?: (text: string, confidence: number) => void;
   onFinalTranscript?: (text: string, confidence: number) => void;
   onError?: (error: string) => void;
@@ -12,13 +14,13 @@ export interface SpeechmaticsConfig {
 }
 
 export class SpeechmaticsService {
-  private ws: WebSocket | null = null;
+  private client: RealtimeClient | null = null;
   private config: SpeechmaticsConfig;
-  private audioContext: AudioContext | null = null;
-  private mediaStream: MediaStream | null = null;
-  private processor: ScriptProcessorNode | null = null;
   private isActive = false;
   private finalTranscript = '';
+  private mediaStream: MediaStream | null = null;
+  private audioContext: AudioContext | null = null;
+  private processor: ScriptProcessorNode | null = null;
 
   constructor(config: SpeechmaticsConfig) {
     this.config = config;
@@ -31,112 +33,114 @@ export class SpeechmaticsService {
     }
 
     try {
-      // Connect to Speechmatics WebSocket
-      const wsUrl = `wss://eu2.rt.speechmatics.com/v2?jwt=${this.config.apiKey}`;
-      this.ws = new WebSocket(wsUrl);
-      this.ws.binaryType = 'arraybuffer';
+      // Create RealtimeClient
+      this.client = new RealtimeClient({
+        url: 'wss://eu2.rt.speechmatics.com/v2',
+      });
 
-      // Set up WebSocket event handlers
-      this.ws.onopen = () => {
-        console.log('✅ Connected to Speechmatics');
-        this.sendStartRecognition();
-      };
+      // Set up event listeners before starting
+      this.setupEventListeners();
 
-      this.ws.onmessage = (event) => {
-        if (typeof event.data === 'string') {
-          const message = JSON.parse(event.data);
-          this.handleMessage(message);
-        }
-      };
+      // Start recognition session with JWT
+      await this.client.start(this.config.jwt, {
+        audio_format: {
+          type: 'raw',
+          encoding: 'pcm_s16le',
+          sample_rate: 16000,
+        },
+        transcription_config: {
+          language: this.config.language,
+          operating_point: 'enhanced',
+          max_delay: 0.7,
+          max_delay_mode: 'flexible',
+          enable_partials: true,
+          enable_entities: false,
+        },
+      });
 
-      this.ws.onerror = (error) => {
-        console.error('Speechmatics WebSocket error:', error);
-        this.config.onError?.('Connection error');
-      };
+      // Start microphone capture and audio streaming
+      await this.startMicrophoneCapture();
 
-      this.ws.onclose = () => {
-        console.log('Speechmatics connection closed');
-        this.isActive = false;
-        this.config.onSessionEnded?.();
-      };
+      this.isActive = true;
+      console.log('✅ Speechmatics started successfully');
 
     } catch (error: any) {
       console.error('Failed to start Speechmatics:', error);
-      this.config.onError?.(error.message || 'Failed to start');
+      this.config.onError?.(error.message || 'Failed to start recognition');
       this.isActive = false;
     }
   }
 
-  private sendStartRecognition(): void {
-    if (!this.ws) return;
+  private setupEventListeners(): void {
+    if (!this.client) return;
 
-    const startMessage = {
-      message: 'StartRecognition',
-      audio_format: {
-        type: 'raw',
-        encoding: 'pcm_s16le',
-        sample_rate: 16000,
-      },
-      transcription_config: {
-        language: this.config.language,
-        operating_point: 'enhanced',
-        max_delay: 0.7,
-        max_delay_mode: 'flexible',
-        enable_partials: true,
-      },
-    };
+    // Listen to all server messages
+    this.client.addEventListener('receiveMessage', (event: any) => {
+      const message = event.data;
 
-    this.ws.send(JSON.stringify(startMessage));
-  }
+      switch (message.message) {
+        case 'RecognitionStarted':
+          console.log('✅ Recognition session started');
+          this.config.onSessionStarted?.();
+          break;
 
-  private handleMessage(message: any): void {
-    switch (message.message) {
-      case 'RecognitionStarted':
-        console.log('✅ Recognition started');
-        this.isActive = true;
-        this.config.onSessionStarted?.();
-        // Start microphone capture
-        this.startMicrophoneCapture();
-        break;
+        case 'AddPartialTranscript':
+          {
+            const transcript = message.metadata?.transcript || '';
+            const confidence = message.results?.[0]?.alternatives?.[0]?.confidence || 0.85;
+            
+            if (transcript.trim()) {
+              this.config.onPartialTranscript?.(transcript, confidence);
+            }
+          }
+          break;
 
-      case 'AddPartialTranscript':
-        {
-          const text = message.metadata?.transcript || '';
-          const confidence = message.results?.[0]?.alternatives?.[0]?.confidence || 0.85;
-          this.config.onPartialTranscript?.(text, confidence);
-        }
-        break;
+        case 'AddTranscript':
+          {
+            const transcript = message.metadata?.transcript || '';
+            const confidence = message.results?.[0]?.alternatives?.[0]?.confidence || 0.95;
+            
+            if (transcript.trim()) {
+              // Append to final transcript
+              this.finalTranscript += (this.finalTranscript ? ' ' : '') + transcript;
+              this.config.onFinalTranscript?.(this.finalTranscript, confidence);
+            }
+          }
+          break;
 
-      case 'AddTranscript':
-        {
-          const text = message.metadata?.transcript || '';
-          const confidence = message.results?.[0]?.alternatives?.[0]?.confidence || 0.95;
-          
-          // Append to final transcript (no duplicates)
-          this.finalTranscript += (this.finalTranscript ? ' ' : '') + text;
-          
-          this.config.onFinalTranscript?.(this.finalTranscript, confidence);
-        }
-        break;
+        case 'EndOfTranscript':
+          console.log('✅ End of transcript');
+          this.config.onSessionEnded?.();
+          break;
 
-      case 'EndOfTranscript':
-        console.log('End of transcript');
-        break;
+        case 'Error':
+          {
+            const errorType = message.type || 'unknown_error';
+            const errorReason = message.reason || 'Recognition error';
+            
+            console.error('❌ Speechmatics error:', message);
+            
+            // Handle specific errors
+            if (errorType === 'not_authorised') {
+              this.config.onError?.('توكن غير صالح - يرجى إعادة المحاولة');
+            } else if (errorType === 'insufficient_funds') {
+              this.config.onError?.('رصيد Speechmatics منتهي');
+            } else {
+              this.config.onError?.(errorReason);
+            }
+          }
+          break;
 
-      case 'Error':
-        console.error('Speechmatics error:', message);
-        this.config.onError?.(message.type || 'Unknown error');
-        break;
-
-      case 'Warning':
-        console.warn('Speechmatics warning:', message);
-        break;
-    }
+        case 'Warning':
+          console.warn('⚠️ Speechmatics warning:', message);
+          break;
+      }
+    });
   }
 
   private async startMicrophoneCapture(): Promise<void> {
     try {
-      // Request microphone
+      // Get microphone stream
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -152,8 +156,9 @@ export class SpeechmaticsService {
       const source = this.audioContext.createMediaStreamSource(this.mediaStream);
       this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
+      // Process and send audio data
       this.processor.onaudioprocess = (e) => {
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN || !this.isActive) return;
+        if (!this.client || !this.isActive) return;
 
         const audioData = e.inputBuffer.getChannelData(0);
         const int16Data = new Int16Array(audioData.length);
@@ -164,8 +169,8 @@ export class SpeechmaticsService {
           int16Data[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
         }
 
-        // Send audio to Speechmatics
-        this.ws.send(int16Data.buffer);
+        // Send audio to Speechmatics via SDK
+        this.client.sendAudio(int16Data.buffer);
       };
 
       source.connect(this.processor);
@@ -175,7 +180,7 @@ export class SpeechmaticsService {
 
     } catch (error: any) {
       console.error('Microphone error:', error);
-      this.config.onError?.('Microphone access denied');
+      this.config.onError?.('تعذر الوصول للميكروفون');
     }
   }
 
@@ -199,13 +204,12 @@ export class SpeechmaticsService {
         this.audioContext = null;
       }
 
-      // End recognition
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ message: 'EndOfStream' }));
-        this.ws.close();
+      // Stop recognition session
+      if (this.client) {
+        await this.client.stopRecognition();
+        this.client = null;
       }
 
-      this.ws = null;
       this.isActive = false;
       this.finalTranscript = '';
 
