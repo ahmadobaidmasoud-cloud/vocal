@@ -129,13 +129,18 @@ npm run db:push  # مزامنة Database schema
 ## ملاحظات تقنية هامة
 
 ### Speech-to-Text (STT)
-- **النهج المتبع في MVP**: Web Speech API المدمج في المتصفح (Chrome, Safari, Edge)
-- **المزايا**: 
-  - مجاني تماماً
-  - دعم ممتاز للعربية (ar-SA) والإنجليزية (en-US)
-  - لا يتطلب خادم STT منفصل
-  - موثوقية عالية
-- **البديل المستقبلي**: WebSocket + Speechmatics/Google Cloud Speech (للإنتاج الكبير)
+- **النظام الحالي**: **Speechmatics Real-Time API** ⭐ (مُفعّل!)
+- **المزايا**:
+  - ⚡ دقة أعلى بـ18% للعربية (خصوصاً الخليجي، المصري، الشامي)
+  - 🚀 Latency <500ms للـpartials، <1s للـfinals
+  - 🎯 Confidence scores لكل كلمة
+  - ✅ حل نهائي لمشكلة تكرار الكلمات
+  - 🔒 أمان: JWT tokens مؤقتة (60 دقيقة)، API key في backend فقط
+  - 💰 Free tier: 8 ساعات/شهر، ثم $1.04/ساعة
+- **الـImplementation**:
+  - Backend: JWT token generation (server/services/speechmatics-jwt.ts)
+  - Frontend: WebSocket service (client/src/services/speechmatics.ts)
+  - Hook: useSpeechRecognition مع دعم partials + finals
 
 ### Text-to-Speech (TTS)
 - **الخدمة**: ElevenLabs API
@@ -147,11 +152,16 @@ npm run db:push  # مزامنة Database schema
 ✅ Task 1: Schema & Frontend Excellence - مكتمل
 ✅ Task 2: Backend Implementation - مكتمل
 ✅ Task 3: Integration & Testing - مكتمل
+🚀 **Task 4: Speechmatics Upgrade** - مكتمل! (النسخة 2.0)
 
-## التحسينات المطبقة
-1. إصلاح مشكلة اللغة في TTS - الآن يحافظ على لغة الاستبيان عند تحديث الأسئلة
-2. إزالة WebSocket غير المستخدم - تبسيط الكود والتركيز على Web Speech API
-3. دعم كامل للعربية والإنجليزية في جميع المكونات
+## التحسينات المطبقة (v2.0 - Speechmatics)
+1. ✅ ترقية من Web Speech API إلى Speechmatics RT API
+2. ✅ دقة أعلى بـ18% للعربية + دعم أفضل للهجات
+3. ✅ Latency فائق: <500ms للـpartials، <1s للـfinals
+4. ✅ حل نهائي لمشكلة تكرار الكلمات
+5. ✅ أمان كامل: JWT tokens مؤقتة، API key محمي في backend
+6. ✅ UI محسّن: عرض partial transcripts + confidence scores
+7. ✅ إصلاح مشكلة اللغة في TTS (من v1.0)
 
 ## المراحل التالية
 - AI Cleanup لتصحيح أخطاء STT

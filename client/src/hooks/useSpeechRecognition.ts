@@ -1,15 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-
-interface SpeechRecognitionResult {
-  transcript: string;
-  isFinal: boolean;
-  confidence: number;
-}
+import { SpeechmaticsService } from '@/services/speechmatics';
 
 interface UseSpeechRecognitionReturn {
   transcript: string;
+  partialTranscript: string;
   isListening: boolean;
   isSupported: boolean;
+  confidence: number;
   error: string | null;
   startListening: () => void;
   stopListening: () => void;
@@ -18,83 +15,106 @@ interface UseSpeechRecognitionReturn {
 
 export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecognitionReturn {
   const [transcript, setTranscript] = useState('');
+  const [partialTranscript, setPartialTranscript] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
+  const [confidence, setConfidence] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const recognitionRef = useRef<any>(null);
+  const serviceRef = useRef<SpeechmaticsService | null>(null);
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        setIsSupported(true);
-        recognitionRef.current = new SpeechRecognition();
-        recognitionRef.current.continuous = true;
-        recognitionRef.current.interimResults = true;
-        recognitionRef.current.lang = language;
-
-        recognitionRef.current.onresult = (event: any) => {
-          let interimTranscript = '';
-          let finalTranscript = '';
-
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcriptPiece = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-              finalTranscript += transcriptPiece + ' ';
-            } else {
-              interimTranscript += transcriptPiece;
-            }
-          }
-
-          setTranscript((prev) => {
-            const newTranscript = prev + finalTranscript + interimTranscript;
-            return newTranscript;
-          });
-        };
-
-        recognitionRef.current.onerror = (event: any) => {
-          console.error('Speech recognition error:', event.error);
-          setError(event.error);
-          setIsListening(false);
-        };
-
-        recognitionRef.current.onend = () => {
-          setIsListening(false);
-        };
-      }
-    }
+    // Speechmatics is supported if we can access backend
+    setIsSupported(true);
 
     return () => {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
+      if (serviceRef.current) {
+        serviceRef.current.stop();
       }
     };
-  }, [language]);
+  }, []);
 
-  const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListening) {
-      setError(null);
-      setTranscript('');
-      recognitionRef.current.start();
-      setIsListening(true);
+  const startListening = useCallback(async () => {
+    if (!isSupported || isListening) return;
+
+    setError(null);
+    setTranscript('');
+    setPartialTranscript('');
+    setConfidence(0);
+
+    try {
+      // Fetch temporary JWT token from backend (secure!)
+      const response = await fetch('/api/speechmatics/token', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to get speech recognition token');
+      }
+
+      const { token } = await response.json();
+
+      // Determine language code
+      const lang = language.startsWith('ar') ? 'ar' : 'en';
+
+      // Create new Speechmatics service with secure token
+      serviceRef.current = new SpeechmaticsService({
+        language: lang,
+        apiKey: token,
+        onPartialTranscript: (text, conf) => {
+          setPartialTranscript(text);
+          setConfidence(conf);
+        },
+        onFinalTranscript: (text, conf) => {
+          setTranscript(text);
+          setConfidence(conf);
+          setPartialTranscript(''); // Clear partial when we get final
+        },
+        onError: (errorMessage) => {
+          console.error('Speechmatics error:', errorMessage);
+          setError(errorMessage);
+          setIsListening(false);
+        },
+        onSessionStarted: () => {
+          console.log('🎤 Recording started');
+          setIsListening(true);
+        },
+        onSessionEnded: () => {
+          console.log('🛑 Recording ended');
+          setIsListening(false);
+        },
+      });
+
+      await serviceRef.current.start();
+
+    } catch (err: any) {
+      console.error('Failed to start speech recognition:', err);
+      setError(err.message || 'Failed to start');
+      setIsListening(false);
     }
-  }, [isListening]);
+  }, [isSupported, isListening, language]);
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
+    if (serviceRef.current && isListening) {
+      serviceRef.current.stop();
       setIsListening(false);
     }
   }, [isListening]);
 
   const resetTranscript = useCallback(() => {
     setTranscript('');
+    setPartialTranscript('');
+    setConfidence(0);
+    if (serviceRef.current) {
+      serviceRef.current.reset();
+    }
   }, []);
 
   return {
     transcript,
+    partialTranscript,
     isListening,
     isSupported,
+    confidence,
     error,
     startListening,
     stopListening,

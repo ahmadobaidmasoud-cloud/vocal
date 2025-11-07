@@ -37,6 +37,8 @@ export default function ResponderPage() {
 
   const { 
     transcript, 
+    partialTranscript,
+    confidence,
     isListening, 
     isSupported,
     error: speechError,
@@ -260,11 +262,16 @@ export default function ResponderPage() {
           </h2>
 
           {/* Voice Status Indicators */}
-          <div className="flex justify-center gap-2 mb-6">
+          <div className="flex justify-center gap-2 mb-6 flex-wrap">
             {isListening && (
               <Badge variant="default" className="animate-pulse-slow" data-testid="badge-recording">
                 <Mic className="w-3 h-3 mr-1" />
                 {isRTL ? 'يسجل الآن...' : 'Recording now...'}
+                {confidence > 0 && (
+                  <span className="ml-2 text-xs opacity-80">
+                    {Math.round(confidence * 100)}%
+                  </span>
+                )}
               </Badge>
             )}
             {speechError && (
@@ -331,13 +338,21 @@ export default function ResponderPage() {
             )}
 
             {(currentQuestion?.type === 'text' || currentQuestion?.type === 'both') && (
-              <Textarea
-                value={transcript}
-                onChange={(e) => {}}
-                placeholder={isRTL ? 'قل إجابتك أو اكتبها هنا...' : 'Speak your answer or type here...'}
-                className="min-h-32 md:min-h-40 text-base resize-none"
-                data-testid="textarea-answer"
-              />
+              <div className="space-y-2">
+                <Textarea
+                  value={transcript}
+                  onChange={(e) => {}}
+                  placeholder={isRTL ? 'قل إجابتك أو اكتبها هنا...' : 'Speak your answer or type here...'}
+                  className="min-h-32 md:min-h-40 text-base resize-none"
+                  data-testid="textarea-answer"
+                />
+                {partialTranscript && (
+                  <p className="text-sm text-muted-foreground italic px-2" data-testid="partial-transcript">
+                    {isRTL ? 'يكتب: ' : 'Typing: '}
+                    <span className="text-primary">{partialTranscript}</span>
+                  </p>
+                )}
+              </div>
             )}
           </div>
 

@@ -2,6 +2,7 @@ import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { generateQuestionAudio } from "./services/elevenlabs";
+import { generateSpeechmaticsJWT } from "./services/speechmatics-jwt";
 import { 
   insertSurveySchema, 
   insertQuestionSchema, 
@@ -11,6 +12,21 @@ import {
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
+
+  // ============================================
+  // SPEECHMATICS JWT TOKEN
+  // ============================================
+  
+  // Generate temporary JWT for browser-based STT
+  app.post("/api/speechmatics/token", async (req: Request, res: Response) => {
+    try {
+      const token = generateSpeechmaticsJWT(60); // 60 minutes
+      res.json({ token, expiresIn: 3600 });
+    } catch (error: any) {
+      console.error('Error generating Speechmatics token:', error);
+      res.status(500).json({ error: error.message || 'Failed to generate token' });
+    }
+  });
 
   // ============================================
   // SURVEYS CRUD
