@@ -92,6 +92,26 @@ export default function ResponderPage() {
     }, 300);
   }, [isSupported, survey, startListening, resetTranscript]);
 
+  // Navigation handlers (defined before voice commands)
+  const handleNext = () => {
+    if (currentQuestion?.type === 'text' || currentQuestion?.type === 'both') {
+      if (!currentQuestion) return;
+      setAnswers(prev => ({
+        ...prev,
+        [currentQuestion.id]: { textValue: transcript }
+      }));
+    }
+    stopListening();
+    resetTranscript();
+    setCurrentQuestionIndex(prev => Math.min(prev + 1, (survey?.questions.length || 1) - 1));
+  };
+
+  const handlePrevious = () => {
+    stopListening();
+    resetTranscript();
+    setCurrentQuestionIndex(prev => Math.max(prev - 1, 0));
+  };
+
   // Voice commands
   useVoiceCommands(
     transcript,
@@ -165,21 +185,6 @@ export default function ResponderPage() {
     }));
     stopListening();
     resetTranscript();
-  };
-
-  const handleNext = () => {
-    if (currentQuestion?.type === 'text' || currentQuestion?.type === 'both') {
-      handleTextSave();
-    }
-    stopListening();
-    resetTranscript();
-    setCurrentQuestionIndex(prev => Math.min(prev + 1, (survey?.questions.length || 1) - 1));
-  };
-
-  const handlePrevious = () => {
-    stopListening();
-    resetTranscript();
-    setCurrentQuestionIndex(prev => Math.max(prev - 1, 0));
   };
 
   const handleSubmit = async () => {
