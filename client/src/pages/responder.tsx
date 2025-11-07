@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRoute } from 'wouter';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,8 @@ export default function ResponderPage() {
   const [isMuted, setIsMuted] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+  const autoStartedRef = useRef<string | null>(null);
+  const userStoppedManuallyRef = useRef(false);
 
   const { data: survey, isLoading } = useQuery<SurveyWithQuestions>({
     queryKey: ['/api/surveys', surveyId],
@@ -86,13 +88,36 @@ export default function ResponderPage() {
   }, [audioElement, survey, currentQuestion]);
 
   const handleAutoStartListening = useCallback(() => {
-    if (!isSupported || !survey?.settings.voiceEnabled) return;
+    if (!isSupported || !survey?.settings.voiceEnabled || !currentQuestion) return;
     
     setTimeout(() => {
       resetTranscript();
       startListening();
+      autoStartedRef.current = currentQuestion.id;
     }, 300);
-  }, [isSupported, survey, startListening, resetTranscript]);
+  }, [isSupported, survey, currentQuestion, startListening, resetTranscript]);
+
+  // Reset manual stop flag when question changes
+  useEffect(() => {
+    userStoppedManuallyRef.current = false;
+    autoStartedRef.current = null;
+  }, [currentQuestion?.id]);
+
+  // Fallback: Auto-start recording for questions without TTS or when TTS fails
+  useEffect(() => {
+    if (!currentQuestion || !survey?.settings.voiceEnabled) return;
+    
+    const shouldFallbackStart = !currentQuestion.voiceUrl || isMuted;
+    const hasNotStartedYet = autoStartedRef.current !== currentQuestion.id;
+    const userDidNotStopManually = !userStoppedManuallyRef.current;
+    
+    if (shouldFallbackStart && !isListening && !isPlaying && hasNotStartedYet && userDidNotStopManually) {
+      const timer = setTimeout(() => {
+        handleAutoStartListening();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [currentQuestion?.id, isMuted, isListening, isPlaying, survey, handleAutoStartListening]);
 
   // Navigation handlers (defined before voice commands)
   const handleNext = () => {
@@ -377,6 +402,43 @@ export default function ResponderPage() {
                 data-testid="button-mute-toggle"
               >
                 {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+              </Button>
+            )}
+
+            {/* Conditional Recording Controls */}
+            {survey.settings.voiceEnabled && !isListening && !isPlaying && autoStartedRef.current !== currentQuestion?.id && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => {
+                  resetTranscript();
+                  startListening();
+                  userStoppedManuallyRef.current = false;
+                  if (currentQuestion) {
+                    autoStartedRef.current = currentQuestion.id;
+                  }
+                }}
+                data-testid="button-start-recording"
+              >
+                <Mic className="w-4 h-4 mr-2" />
+                {isRTL ? 'ابدأ التسجيل' : 'Start Recording'}
+              </Button>
+            )}
+
+            {survey.settings.voiceEnabled && isListening && (
+              <Button
+                variant="destructive"
+                size="icon"
+                onClick={() => {
+                  stopListening();
+                  userStoppedManuallyRef.current = true;
+                  if (currentQuestion) {
+                    autoStartedRef.current = null;
+                  }
+                }}
+                data-testid="button-stop-recording"
+              >
+                <MicOff className="w-4 h-4" />
               </Button>
             )}
           </div>
