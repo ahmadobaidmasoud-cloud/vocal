@@ -13,6 +13,18 @@ interface UseSpeechRecognitionReturn {
   resetTranscript: () => void;
 }
 
+/**
+ * Clean voice transcript from punctuation and extra spaces
+ * Removes: periods, commas, exclamations, question marks, colons, semicolons
+ * Normalizes: multiple spaces into single space
+ */
+function cleanVoiceTranscript(text: string): string {
+  return text
+    .replace(/[.,!?;:]/g, '')  // Remove all punctuation marks
+    .replace(/\s+/g, ' ')      // Convert multiple spaces to single space
+    .trim();                   // Remove leading/trailing spaces
+}
+
 export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecognitionReturn {
   const [transcript, setTranscript] = useState('');
   const [partialTranscript, setPartialTranscript] = useState('');
@@ -61,11 +73,11 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
         language: lang,
         jwt: token,
         onPartialTranscript: (text, conf) => {
-          setPartialTranscript(text);
+          setPartialTranscript(cleanVoiceTranscript(text));
           setConfidence(conf);
         },
         onFinalTranscript: (text, conf) => {
-          setTranscript(text);
+          setTranscript(cleanVoiceTranscript(text));
           setConfidence(conf);
           setPartialTranscript(''); // Clear partial when we get final
         },
