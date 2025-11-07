@@ -1,0 +1,394 @@
+✅ أولًا: تعريف المنتج النهائي
+
+VocalSurvey
+منصة استبيانات عربية–عالمية كاملة، قائمة على:
+
+Voice-first UX (الأسئلة تُسمَع، والإجابات تُملى صوتيًا)
+
+Speech-to-Text + AI Cleanup
+
+Text Questions + Score Questions 1–5 أو 1–10
+
+Voice Commands (Next / Back / Submit / Repeat)
+
+تصميم متكامل، صلب، سريع، بسيط
+
+تصلح للحكومة، الصحة، التعليم، الفنادق، المطارات، الشركات، المزودين.
+
+✅ ثانيًا: الميزات الأساسية (Core Features)
+✅ 1) لوحة تحكم كاملة للـCreator
+ميزات متقدمة:
+
+إنشاء استبيانات غير محدودة
+
+إضافة أي عدد من الأسئلة
+
+ترتيب الأسئلة بالسحب
+
+أنواع الإجابات:
+
+Score 1–5
+
+Score 1–10
+
+Text Answer
+
+Both
+
+وصف الاستبيان، صورة، شعار
+
+تخصيص الألوان
+
+تفعيل/تعطيل:
+
+التسجيل الصوتي
+
+أوامر الانتقال الصوتية
+
+إعادة تشغيل السؤال
+
+زر التقدم اليدوي
+
+إضافيات احترافية:
+
+حفظ تلقائي (Autosave)
+
+إصدار روابط خاصة وعامة
+
+تحديد صلاحية الرابط
+
+رمز QR جاهز للطباعة
+
+لغة واجهة المستخدم (عربي/إنجليزي)
+
+لوحة مستخدمين (Team Members) مع صلاحيات:
+
+Viewer
+
+Editor
+
+Admin
+
+✅ 2) تجربة الكامل للـResponder
+
+واجهة احترافية، شبيهة بالصورة المرفقة، وتشمل:
+
+✅ تدفق صوتي AI:
+
+تشغيل السؤال بالصوت تلقائيًا
+
+STT يبدأ مباشرة فور انتهاء TTS
+
+في الأسئلة Score:
+
+يلتقط الرقم صوتيًا تلقائيًا (1–5 / 1–10)
+
+انتقال تلقائي للسؤال التالي بدون زر
+
+في الأسئلة Text:
+
+التفريغ الحي في Textarea
+
+ينتهي عند قول "التالي"
+
+✅ دعم:
+
+إعادة تشغيل السؤال
+
+كتم الصوت
+
+زر التالي/السابق
+
+زر إرسال
+
+مؤشرات:
+
+"يسجل الآن…"
+
+"لم أسمع جيدًا"
+
+الكشف عن:
+
+التالي / السابق
+
+إرسال
+
+إعادة / Repeat
+
+الأرقام
+
+نعم/لا (لو استُخدمت لأسلوب Binary Score)
+
+✅ توافق كامل:
+
+iOS / Android
+
+Chrome / Safari / Edge / Firefox
+
+دعم وضع ذوي الاحتياجات الخاصة (Accessibility)
+
+✅ 3) التحليلات (Analytics Dashboard)
+تقارير قوية:
+
+NPS–Style Score Report
+
+عدد الردود
+
+الوقت المستغرق لكل سؤال
+
+خرائط الحرارة (Heatmaps)
+
+أفضل/أسوأ الأسئلة
+
+معدل الاستماع مقابل معدل الإجابة
+
+Distribution:
+
+Histogram للدرجات
+
+AI Tagging للكومنتات
+
+Word Cloud
+
+إضافيات:
+
+فلترة:
+
+حسب الوقت
+
+حسب الجهاز
+
+حسب اللغة
+
+حسب الموقع الجغرافي
+
+Export:
+
+CSV
+
+Excel
+
+PDF Summary
+
+✅ 4) ذكاء اصطناعي (AI Enhancements)
+ميزات جاهزة:
+
+AI Cleanup للنصوص: تصحيح أخطاء STT
+
+AI Summaries:
+
+تلخيص كل سؤال
+
+تلخيص الاستبيان كامل
+
+AI Sentiment Analysis
+
+AI Insights:
+
+استخراج Themes
+
+توصيات Actionable
+
+اختيارك:
+
+يمكنك تشغيل/تعطيل ميزات AI حسب السوق.
+
+✅ 5) الأمان والخصوصية (Production Grade Security)
+سياسات احترافية:
+
+تشفير كامل للبيانات عند النقل: HTTPS + WSS
+
+تشفير في التخزين: AES256
+
+API Keys Server-Side فقط
+
+لا يتم حفظ ملفات صوت إلا إذا فعلها الـCreator
+
+نظام صلاحيات RBAC
+
+Web Application Firewall
+
+Rate Limiting لحماية STT
+
+CSRF Protection
+
+CORS محكم
+
+مراقبة (Logging + Monitoring)
+
+✅ 6) البنية التقنية النهائية (Architecture v1.0)
+✅ Frontend
+
+React + TypeScript + Vite
+
+Tailwind + Headless UI
+
+Zustand for state
+
+WebSocket client لـ STT
+
+Offline fallback
+
+✅ Backend
+
+Node.js + Fastify
+
+Drizzle ORM
+
+PostgreSQL
+
+Redis للكاش والصفوف (Job Queues)
+
+Workers:
+
+TTS generation
+
+AI Summaries
+
+Export CSV
+
+✅ Services
+
+11Labs TTS
+
+Speechmatics STT
+
+Mailgun للاشعارات
+
+S3-Storage (Backblaze أو AWS S3)
+
+CDN لتسريع ملفات الصوت
+
+✅ Scaling
+
+Horizontal auto-scaling
+
+WebSocket Scalable (SignalR / WebSocket Gateway)
+
+Load Balancer
+
+Database Replication للقراءة السريعة
+
+✅ ثالثًا: ميزات إضافية لنسخة المنتج النهائي فقط
+
+هذه ميزات تجعل المنصة منتج SaaS محترف:
+
+✅ 1) إدارة الاستبيانات Projects
+
+Project → يحتوي استبيانات متعددة
+
+تقارير مجمعة للـProject
+
+✅ 2) Workflow Automation
+
+إرسال تنبيه عند وصول 100 رد
+
+إرسال Email Report يومي
+
+Webhooks:
+
+POST عند كل رد جديد
+
+ربط مع Slack أو Teams أو CRM
+
+✅ 3) Multi-language Surveys
+
+السؤال يملك ترجمتين (AR/EN)
+يُعرض السؤال حسب لغة جهاز المشارك.
+
+✅ 4) Theme Builder
+
+allow the creator to select:
+
+Theme color
+
+Primary Buttons
+
+Card Style
+
+Font
+
+Logo Position
+
+✅ 5) Conditional Logic
+
+لو الرضا أقل من 5 → افتح سؤال إضافي
+لو الإجابة No → انتقل لسؤال محدد
+
+✅ 6) Response limits / Quotas
+
+مثال:
+
+احصل على 100 جواب
+
+أغلق الاستبيان بعد 7 أيام
+
+افتح الاستبيان من 8 صباحًا حتى 8 مساءًا
+
+✅ رابعًا: تدفق الأسئلة (Final UX Flow)
+عند كل سؤال:
+1) تشغيل الصوت TTS 
+2) STT يبدأ تلقائيًا 
+3) حسب نوع السؤال:
+
+   Score 1–5/10:
+       إذا التقاط رقم → حفظ → next
+
+   Text:
+       عرض نص حي → قول "التالي" → حفظ → next
+
+   Both:
+       نفس Text + رقم اختياري
+
+4) زر "السابق" شغال دائمًا
+5) آخر سؤال = زر "إرسال"
+
+الواجهة:
+
+بالضبط تصميم البطاقات الخضراء في الصورة
+
+لكن احترافي ومتمدد
+
+مع Animation خفيفة للانتقال بين الأسئلة
+
+Responsive ممتاز
+
+✅ خامسًا: بنية الكود (Best Practice Structure)
+Frontend
+src/
+  components/
+  pages/
+  features/
+  hooks/
+  services/
+  store/
+  utils/
+  styles/
+  ws/
+
+Backend
+src/
+  modules/
+  controllers/
+  routes/
+  services/
+  jobs/
+  utils/
+  middleware/
+  db/
+  config/
+
+✅ سادسًا: خطة تشغيل جاهزة (Deployment Plan)
+Production:
+
+Vercel (Frontend)
+
+Render / Fly.io / AWS ECS (Backend)
+
+Postgres on Neon / RDS
+
+S3 for audio
+
+Cloudflare CDN
+
+UptimeRobot monitoring
