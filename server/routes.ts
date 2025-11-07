@@ -17,10 +17,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // SPEECHMATICS JWT TOKEN
   // ============================================
   
-  // Generate temporary JWT for browser-based STT
+  // Generate temporary JWT for browser-based STT (from Speechmatics Management API)
   app.post("/api/speechmatics/token", async (req: Request, res: Response) => {
     try {
-      const token = generateSpeechmaticsJWT(60); // 60 minutes
+      const token = await generateSpeechmaticsJWT(3600); // 1 hour (3600 seconds)
       res.json({ token, expiresIn: 3600 });
     } catch (error: any) {
       console.error('Error generating Speechmatics token:', error);

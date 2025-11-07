@@ -1,72 +1,59 @@
 // Speechmatics JWT Token Generation
-// Creates short-lived JWT tokens for secure browser-based STT
-
-import jwt from 'jsonwebtoken';
+// Fetches temporary JWT tokens from Speechmatics Management API
 
 const API_KEY = process.env.SPEECHMATICS_API_KEY;
 const SPEECHMATICS_URL = 'wss://eu2.rt.speechmatics.com/v2';
+const MANAGEMENT_API_URL = 'https://mp.speechmatics.com/v1/api_keys';
 
-export interface SpeechmaticsJWTPayload {
-  type: 'speechmatics_jwt';
-  sub: string;
-  iss: string;
-  aud: string;
-  exp: number;
-  iat: number;
+export interface SpeechmaticsJWTResponse {
+  key_value: string;
+  expires_at: string;
 }
 
 /**
- * Generate a secure temporary JWT for Speechmatics
- * Following Speechmatics JWT spec: https://docs.speechmatics.com/rt-api-ref
+ * Generate a temporary JWT token from Speechmatics Management API
+ * Following official spec: https://docs.speechmatics.com/introduction/authentication
+ * 
+ * This is the ONLY way to get valid JWT tokens for Speechmatics RT API.
+ * Manual JWT generation with jsonwebtoken will NOT work.
  */
-export function generateSpeechmaticsJWT(durationMinutes: number = 60): string {
+export async function generateSpeechmaticsJWT(ttl: number = 3600): Promise<string> {
   if (!API_KEY) {
     throw new Error('SPEECHMATICS_API_KEY not configured');
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  
-  const payload: SpeechmaticsJWTPayload = {
-    type: 'speechmatics_jwt',
-    sub: 'vocalsurvey-client',
-    iss: 'vocalsurvey-backend',
-    aud: SPEECHMATICS_URL.replace('wss:', 'https:'), // Convert wss:// to https:// for aud claim
-    iat: now,
-    exp: now + (durationMinutes * 60),
-  };
-
-  // Sign JWT with API key as secret
-  // Speechmatics uses HS256 algorithm
-  const token = jwt.sign(payload, API_KEY, {
-    algorithm: 'HS256',
-  });
-
-  return token;
-}
-
-/**
- * Validate a Speechmatics JWT token
- */
-export function validateJWT(token: string): boolean {
-  if (!API_KEY) {
-    return false;
+  // Validate TTL (must be 60-3600 seconds per Speechmatics spec)
+  if (ttl < 60 || ttl > 3600) {
+    throw new Error('TTL must be between 60 and 3600 seconds');
   }
 
   try {
-    const decoded = jwt.verify(token, API_KEY, {
-      algorithms: ['HS256'],
-    }) as SpeechmaticsJWTPayload;
+    const response = await fetch(`${MANAGEMENT_API_URL}?type=rt`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${API_KEY}`,
+      },
+      body: JSON.stringify({ ttl }),
+    });
 
-    // Check expiration
-    const now = Math.floor(Date.now() / 1000);
-    if (decoded.exp < now) {
-      return false;
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Speechmatics API error: ${response.status} - ${errorText}`);
     }
 
-    return decoded.type === 'speechmatics_jwt';
+    const data = await response.json() as SpeechmaticsJWTResponse;
+    
+    if (!data.key_value) {
+      throw new Error('No JWT token returned from Speechmatics');
+    }
+
+    console.log(`✅ Generated Speechmatics JWT (expires: ${data.expires_at})`);
+    return data.key_value;
+
   } catch (error) {
-    console.error('JWT validation error:', error);
-    return false;
+    console.error('❌ Failed to generate Speechmatics JWT:', error);
+    throw error;
   }
 }
 
