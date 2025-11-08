@@ -43,6 +43,7 @@ export default function ResponderPage() {
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [editableText, setEditableText] = useState('');
   const [isCompleted, setIsCompleted] = useState(false);
+  const [tutorialActive, setTutorialActive] = useState(false);
   const autoStartedRef = useRef<string | null>(null);
   const userStoppedManuallyRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
