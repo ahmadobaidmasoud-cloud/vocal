@@ -1,0 +1,67 @@
+<button id="startBtn">ابدأ</button>
+<script>
+let ac, stream, micSrc, micGate, recorder;
+let ready = false;
+
+async function primeOnce() {
+  // 1) لازم يستدعى من داخل click/pointerdown
+  ac = new (window.AudioContext || window.webkitAudioContext)();
+  await ac.resume();
+
+  stream = await navigator.mediaDevices.getUserMedia({
+    audio: { echoCancellation:true, noiseSuppression:true, autoGainControl:true }
+  });
+
+  // 2) بوابة الميك بالصوت بدل تشغيل/إيقاف التراكات
+  micSrc  = ac.createMediaStreamSource(stream);
+  micGate = ac.createGain();
+  micGate.gain.value = 0; // بالبداية مقفّل
+  micSrc.connect(micGate);
+
+  // لو عندك معالجة/إرسال للسيرفر، واصل من micGate
+  // مثال: تحويل البوابة لستريم ثاني للتسجيل/الويب سوكِت
+  const dest = ac.createMediaStreamDestination();
+  micGate.connect(dest);
+
+  // 3) حضّر MediaRecorder على السيرفر/لوكل
+  recorder = new MediaRecorder(dest.stream, { mimeType: 'audio/webm' });
+  recorder.ondataavailable = e => { /* send e.data */ };
+
+  ready = true;
+}
+
+// يبدأ TTS: اقفل الميك
+function ttsStart() {
+  micGate && (micGate.gain.value = 0);
+  // لا تستعمل track.stop() عشان ما تفقد إذن المستخدم
+}
+
+// ينتهي TTS: افتح الميك بعد tail صغير
+async function ttsEnd() {
+  if (!ready) return;
+  try {
+    await ac.resume();  // Safari يحبها
+  } catch {}
+  setTimeout(() => {
+    micGate.gain.value = 1;   // رجّع الاستماع
+    if (recorder?.state === 'inactive') recorder.start(1000);
+    if (recorder?.state === 'paused')   recorder.resume();
+  }, 200);
+}
+
+// مثال تدفق:
+document.getElementById('startBtn').addEventListener('click', async () => {
+  if (!ready) await primeOnce();      // تهيئة بإيماءة واحدة
+  micGate.gain.value = 1;             // افتح الميك أول مرة
+  recorder.start(1000);               // ابدأ تجميع مقاطع
+});
+
+// استعمل هذي أثناء العرض الصوتي للسؤال
+async function askWithTTS(url) {
+  ttsStart();
+  const audio = new Audio(url);
+  audio.playsInline = true; audio.autoplay = true; audio.muted = false;
+  await audio.play().catch(()=>{ /* لو احتاج تفاعل */ });
+  audio.onended = () => ttsEnd();
+}
+</script>
