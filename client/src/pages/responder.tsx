@@ -145,7 +145,7 @@ export default function ResponderPage() {
       resetTranscript();
       startListening(currentQuestion.id); // ← Pass question ID to startListening
       autoStartedRef.current = currentQuestion.id;
-    }, 1);
+    }, 0); // ← Ultra-instant: 0ms delay!
   }, [isSupported, survey, currentQuestion, startListening, resetTranscript]);
 
   // When question changes, load saved answer and reset flags
