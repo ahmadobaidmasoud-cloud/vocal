@@ -25,30 +25,16 @@ export class SpeechmaticsService {
   private client: RealtimeClient | null = null;
   private config: SpeechmaticsConfig;
   private isActive = false;
-  private isPaused = false; // ← NEW: Track pause state
   private finalTranscript = '';
+  
+  // ✅ OPTIMIZATION: Reuse audio pipeline between sessions
   private mediaStream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
-  private source: MediaStreamAudioSourceNode | null = null; // ← NEW: Keep source reference
-  
-  // ✅ FIX: Track active questionId separately to prevent race conditions
-  // This ensures late transcripts are tagged with the correct question ID
-  private activeQuestionId: string;
-  
-  // ✅ FIX: Track pause timestamp to reject stale transcripts
-  private pauseTimestamp: number = 0;
+  private source: MediaStreamAudioSourceNode | null = null;
 
   constructor(config: SpeechmaticsConfig) {
     this.config = config;
-    this.activeQuestionId = config.questionId;
-  }
-
-  // ← NEW: Update questionId for next question (without reconnecting!)
-  updateQuestionId(questionId: string): void {
-    this.config.questionId = questionId;
-    this.finalTranscript = ''; // Reset transcript for new question
-    console.log(`🔄 Updated questionId to: ${questionId} (will activate on resume)`);
   }
 
   async start(): Promise<void> {
@@ -111,15 +97,12 @@ export class SpeechmaticsService {
 
         case 'AddPartialTranscript':
           {
-            // ✅ Skip if paused (prevents late transcripts from wrong question)
-            if (this.isPaused) break;
-
             const transcript = message.metadata?.transcript || '';
             const confidence = message.results?.[0]?.alternatives?.[0]?.confidence || 0.85;
             
             if (transcript.trim()) {
               this.config.onPartialTranscript?.({
-                questionId: this.activeQuestionId, // ← Use activeQuestionId (stable during recording)
+                questionId: this.config.questionId,
                 text: transcript,
                 confidence,
                 isFinal: false,
@@ -130,9 +113,6 @@ export class SpeechmaticsService {
 
         case 'AddTranscript':
           {
-            // ✅ Skip if paused (prevents late transcripts from wrong question)
-            if (this.isPaused) break;
-
             const transcript = message.metadata?.transcript || '';
             const confidence = message.results?.[0]?.alternatives?.[0]?.confidence || 0.95;
             
@@ -140,7 +120,7 @@ export class SpeechmaticsService {
               // Append to final transcript
               this.finalTranscript += (this.finalTranscript ? ' ' : '') + transcript;
               this.config.onFinalTranscript?.({
-                questionId: this.activeQuestionId, // ← Use activeQuestionId (stable during recording)
+                questionId: this.config.questionId,
                 text: this.finalTranscript,
                 confidence,
                 isFinal: true,
@@ -181,13 +161,13 @@ export class SpeechmaticsService {
 
   private async startMicrophoneCapture(): Promise<void> {
     try {
-      // ✅ OPTIMIZATION 3: Reuse existing audio pipeline if available
+      // ✅ OPTIMIZATION: Reuse existing audio pipeline if available (saves ~100ms)
       if (this.mediaStream && this.audioContext && this.processor && this.source) {
-        console.log('♻️ Reusing existing audio pipeline (ultra-fast!)');
+        console.log('♻️ Reusing existing audio pipeline');
         return;
       }
 
-      // Get microphone stream (only once!)
+      // Get microphone stream (first time only)
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -198,14 +178,14 @@ export class SpeechmaticsService {
         },
       });
 
-      // Create audio processing chain (only once!)
+      // Create audio processing chain (first time only)
       this.audioContext = new AudioContext({ sampleRate: 16000 });
       this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
       this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
       // Process and send audio data
       this.processor.onaudioprocess = (e) => {
-        if (!this.client || !this.isActive || this.isPaused) return; // ← Don't send when paused
+        if (!this.client || !this.isActive) return;
 
         const audioData = e.inputBuffer.getChannelData(0);
         const int16Data = new Int16Array(audioData.length);
@@ -231,42 +211,30 @@ export class SpeechmaticsService {
     }
   }
 
-  // ← NEW: Pause recording (keep connection alive!)
-  pause(): void {
-    if (!this.isActive || this.isPaused) return;
-    
-    this.isPaused = true;
-    this.pauseTimestamp = Date.now(); // ← Record when we paused
-    console.log('⏸️ Recording paused (keeping connection alive)');
-  }
-
-  // ← NEW: Resume recording (instant restart!)
-  async resume(): Promise<void> {
-    if (!this.isActive || !this.isPaused) return;
-    
-    // ✅ CRITICAL FIX: Wait for in-flight transcripts to drain (150ms buffer)
-    // This ensures any recognition events from the previous question arrive
-    // while isPaused=true and get rejected, preventing mis-tagging
-    const timeSincePause = Date.now() - this.pauseTimestamp;
-    const drainDelay = Math.max(0, 150 - timeSincePause);
-    
-    if (drainDelay > 0) {
-      console.log(`⏳ Waiting ${drainDelay}ms for in-flight transcripts to drain...`);
-      await new Promise(resolve => setTimeout(resolve, drainDelay));
-    }
-    
-    // ✅ Now it's safe to update questionId and resume
-    this.activeQuestionId = this.config.questionId;
-    this.isPaused = false;
-    this.finalTranscript = ''; // Reset for new question
-    console.log(`▶️ Recording resumed for question: ${this.activeQuestionId}`);
-  }
-
   async stop(): Promise<void> {
     if (!this.isActive) return;
 
     try {
-      // Stop microphone
+      // Stop recognition session (but keep audio pipeline alive!)
+      if (this.client) {
+        await this.client.stopRecognition();
+        this.client = null;
+      }
+
+      this.isActive = false;
+      this.finalTranscript = '';
+
+      console.log('🛑 Speechmatics session stopped (audio pipeline kept alive)');
+
+    } catch (error) {
+      console.error('Error stopping Speechmatics:', error);
+    }
+  }
+
+  // ✅ Cleanup audio resources when survey is complete
+  async cleanup(): Promise<void> {
+    try {
+      // Disconnect audio processor
       if (this.processor) {
         this.processor.disconnect();
         this.processor = null;
@@ -277,35 +245,26 @@ export class SpeechmaticsService {
         this.source = null;
       }
 
+      // Stop microphone stream
       if (this.mediaStream) {
         this.mediaStream.getTracks().forEach(track => track.stop());
         this.mediaStream = null;
       }
 
+      // Close audio context
       if (this.audioContext) {
         await this.audioContext.close();
         this.audioContext = null;
       }
 
-      // Stop recognition session
-      if (this.client) {
-        await this.client.stopRecognition();
-        this.client = null;
-      }
-
-      this.isActive = false;
-      this.isPaused = false;
-      this.finalTranscript = '';
-
-      console.log('🛑 Speechmatics stopped');
-
+      console.log('🧹 Audio pipeline cleaned up');
     } catch (error) {
-      console.error('Error stopping Speechmatics:', error);
+      console.error('Error cleaning up audio:', error);
     }
   }
 
   isRunning(): boolean {
-    return this.isActive && !this.isPaused;
+    return this.isActive;
   }
 
   reset(): void {

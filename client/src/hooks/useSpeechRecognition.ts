@@ -48,31 +48,23 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
     setIsSupported(true);
 
     return () => {
+      // Cleanup audio resources when component unmounts
       if (serviceRef.current) {
         serviceRef.current.stop();
+        serviceRef.current.cleanup();
       }
     };
   }, []);
 
   const startListening = useCallback(async (questionId: string) => {
-    if (!isSupported) return;
+    if (!isSupported || isListening) return;
 
     setError(null);
     setTranscript(null);
     setPartialTranscript(null);
 
     try {
-      // ✅ OPTIMIZATION 2 & 3: Reuse existing service + connection if available
-      if (serviceRef.current && serviceRef.current.isRunning()) {
-        console.log('♻️ Reusing existing Speechmatics session (ultra-fast!)');
-        serviceRef.current.pause();
-        serviceRef.current.updateQuestionId(questionId);
-        await serviceRef.current.resume(); // ← Now async (waits for drain)
-        setIsListening(true);
-        return;
-      }
-
-      // ✅ OPTIMIZATION 1: Reuse cached JWT token if valid
+      // ✅ OPTIMIZATION 1: Reuse cached JWT token if valid (saves ~200ms)
       const now = Date.now();
       let token = tokenRef.current;
 
@@ -100,64 +92,56 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
       // Determine language code
       const lang = language.startsWith('ar') ? 'ar' : 'en';
 
-      // Create Speechmatics service ONCE (or reuse existing)
-      if (!serviceRef.current) {
-        console.log('🆕 Creating new Speechmatics service...');
-        serviceRef.current = new SpeechmaticsService({
-          questionId,
-          language: lang,
-          jwt: token!,
-          onPartialTranscript: (payload: TranscriptPayload) => {
-            setPartialTranscript({
-              questionId: payload.questionId,
-              text: cleanVoiceTranscript(payload.text),
-              confidence: payload.confidence,
-              isFinal: false,
-            });
-          },
-          onFinalTranscript: (payload: TranscriptPayload) => {
-            setTranscript({
-              questionId: payload.questionId,
-              text: cleanVoiceTranscript(payload.text),
-              confidence: payload.confidence,
-              isFinal: true,
-            });
-            setPartialTranscript(null);
-          },
-          onError: (errorMessage) => {
-            console.error('Speechmatics error:', errorMessage);
-            setError(errorMessage);
-            setIsListening(false);
-          },
-          onSessionStarted: () => {
-            console.log(`🎤 Recording started for question: ${questionId}`);
-            setIsListening(true);
-          },
-          onSessionEnded: () => {
-            console.log('🛑 Recording ended');
-            setIsListening(false);
-          },
-        });
+      // Create new Speechmatics service for each question (WebSocket reconnect)
+      // Audio pipeline is reused automatically (optimization 2)
+      serviceRef.current = new SpeechmaticsService({
+        questionId,
+        language: lang,
+        jwt: token!,
+        onPartialTranscript: (payload: TranscriptPayload) => {
+          setPartialTranscript({
+            questionId: payload.questionId,
+            text: cleanVoiceTranscript(payload.text),
+            confidence: payload.confidence,
+            isFinal: false,
+          });
+        },
+        onFinalTranscript: (payload: TranscriptPayload) => {
+          setTranscript({
+            questionId: payload.questionId,
+            text: cleanVoiceTranscript(payload.text),
+            confidence: payload.confidence,
+            isFinal: true,
+          });
+          setPartialTranscript(null);
+        },
+        onError: (errorMessage) => {
+          console.error('Speechmatics error:', errorMessage);
+          setError(errorMessage);
+          setIsListening(false);
+        },
+        onSessionStarted: () => {
+          console.log(`🎤 Recording started for question: ${questionId}`);
+          setIsListening(true);
+        },
+        onSessionEnded: () => {
+          console.log('🛑 Recording ended');
+          setIsListening(false);
+        },
+      });
 
-        await serviceRef.current.start();
-      } else {
-        // Service exists but was paused - just update and resume
-        serviceRef.current.updateQuestionId(questionId);
-        await serviceRef.current.resume(); // ← Now async (waits for drain)
-        setIsListening(true);
-      }
+      await serviceRef.current.start();
 
     } catch (err: any) {
       console.error('Failed to start speech recognition:', err);
       setError(err.message || 'Failed to start');
       setIsListening(false);
     }
-  }, [isSupported, language]);
+  }, [isSupported, isListening, language]);
 
   const stopListening = useCallback(() => {
     if (serviceRef.current && isListening) {
-      // ✅ Use pause instead of stop (keep connection alive!)
-      serviceRef.current.pause();
+      serviceRef.current.stop();
       setIsListening(false);
     }
   }, [isListening]);
