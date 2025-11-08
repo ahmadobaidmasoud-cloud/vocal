@@ -32,6 +32,7 @@ export class SpeechmaticsService {
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
+  private micGainNode: GainNode | null = null; // ✅ iOS Safari fix: Control mic via gain instead of stop/start
 
   constructor(config: SpeechmaticsConfig) {
     this.config = config;
@@ -167,7 +168,7 @@ export class SpeechmaticsService {
   private async startMicrophoneCapture(): Promise<void> {
     try {
       // ✅ OPTIMIZATION: Reuse existing audio pipeline if available (saves ~100ms)
-      if (this.mediaStream && this.audioContext && this.processor && this.source) {
+      if (this.mediaStream && this.audioContext && this.processor && this.source && this.micGainNode) {
         console.log('♻️ Reusing existing audio pipeline');
         return;
       }
@@ -185,7 +186,14 @@ export class SpeechmaticsService {
 
       // Create audio processing chain (first time only)
       this.audioContext = new AudioContext({ sampleRate: 16000 });
+      await this.audioContext.resume(); // ✅ iOS Safari: Resume context from user gesture
+      
       this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
+      
+      // ✅ iOS Safari fix: Add GainNode to control mic mute/unmute without stopping stream
+      this.micGainNode = this.audioContext.createGain();
+      this.micGainNode.gain.value = 1; // Start unmuted
+      
       this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
       // Process and send audio data
@@ -205,10 +213,12 @@ export class SpeechmaticsService {
         this.client.sendAudio(int16Data.buffer);
       };
 
-      this.source.connect(this.processor);
+      // Connect audio pipeline with gain node
+      this.source.connect(this.micGainNode);
+      this.micGainNode.connect(this.processor);
       this.processor.connect(this.audioContext.destination);
 
-      console.log('🎤 Microphone capture started');
+      console.log('🎤 Microphone capture started with GainNode control');
 
     } catch (error: any) {
       console.error('Microphone error:', error);
@@ -277,5 +287,26 @@ export class SpeechmaticsService {
 
   reset(): void {
     this.finalTranscript = '';
+  }
+
+  // ✅ iOS Safari fix: Mute mic via GainNode (keeps stream alive)
+  muteAudio(): void {
+    if (this.micGainNode) {
+      this.micGainNode.gain.value = 0;
+      console.log('🔇 Microphone muted (gain = 0)');
+    }
+  }
+
+  // ✅ iOS Safari fix: Unmute mic via GainNode
+  async unmuteAudio(): Promise<void> {
+    if (this.micGainNode && this.audioContext) {
+      try {
+        await this.audioContext.resume(); // ✅ Safari requires resume
+        this.micGainNode.gain.value = 1;
+        console.log('🔊 Microphone unmuted (gain = 1)');
+      } catch (error) {
+        console.error('Error unmuting audio:', error);
+      }
+    }
   }
 }
