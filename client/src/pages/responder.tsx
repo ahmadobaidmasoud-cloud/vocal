@@ -233,6 +233,19 @@ export default function ResponderPage() {
   const handlePrevious = () => {
     if (currentQuestionIndex === 0) return;
     
+    // Save current editable text to answersRef BEFORE navigating (prevents data loss)
+    if (currentQuestion && (currentQuestion.type === 'text' || currentQuestion.type === 'both') && editableText.trim()) {
+      const newAnswers = {
+        ...answersRef.current,
+        [currentQuestion.id]: { 
+          ...answersRef.current[currentQuestion.id],
+          textValue: editableText 
+        }
+      };
+      answersRef.current = newAnswers; // ← Synchronous update
+      setAnswers(newAnswers);
+    }
+    
     // Remove last message from history
     setConversationHistory(prev => prev.slice(0, -1));
     
@@ -285,8 +298,8 @@ export default function ResponderPage() {
     if (currentQuestion && 
         taggedTranscript?.questionId === currentQuestion.id &&
         taggedTranscript?.text &&
-        (currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10')) {
-      const maxScore = currentQuestion.type === 'score_5' ? 5 : 10;
+        (currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10' || currentQuestion.type === 'both')) {
+      const maxScore = currentQuestion.type === 'score_10' ? 10 : 5;
       const detectedNumber = extractNumberFromTranscript(taggedTranscript.text, maxScore);
       
       if (detectedNumber !== null) {
@@ -579,9 +592,9 @@ export default function ResponderPage() {
               {/* Answer input area */}
               <div className="bg-white rounded-2xl shadow-md p-4 space-y-3">
                 {/* Score capsules */}
-                {(currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10') && (
+                {(currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10' || currentQuestion.type === 'both') && (
                   <div className="flex flex-wrap gap-2 md:gap-3 justify-center">
-                    {Array.from({ length: currentQuestion.type === 'score_5' ? 5 : 10 }, (_, i) => i + 1).map((score) => (
+                    {Array.from({ length: currentQuestion.type === 'score_10' ? 10 : 5 }, (_, i) => i + 1).map((score) => (
                       <button
                         key={score}
                         onClick={() => handleScoreSelect(score)}
