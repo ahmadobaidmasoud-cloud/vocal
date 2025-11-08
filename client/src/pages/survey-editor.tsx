@@ -308,6 +308,40 @@ export default function SurveyEditorPage() {
                             </SelectContent>
                           </Select>
                         </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={async () => {
+                            if (!question.text.trim()) {
+                              toast({
+                                title: isRTL ? 'خطأ' : 'Error',
+                                description: isRTL ? 'الرجاء إدخال نص السؤال أولاً' : 'Please enter question text first',
+                                variant: 'destructive',
+                              });
+                              return;
+                            }
+                            try {
+                              const audioUrl = await generateQuestionAudio(question.text, language);
+                              if (audioUrl) {
+                                updateQuestion(index, { voiceUrl: audioUrl });
+                                toast({
+                                  title: isRTL ? 'تم' : 'Success',
+                                  description: isRTL ? 'تم توليد الصوت للسؤال' : 'Question voice generated',
+                                });
+                              }
+                            } catch (error) {
+                              toast({
+                                title: isRTL ? 'خطأ' : 'Error',
+                                description: isRTL ? 'فشل توليد الصوت' : 'Failed to generate voice',
+                                variant: 'destructive',
+                              });
+                            }
+                          }}
+                          data-testid={`button-generate-question-${index}`}
+                        >
+                          <Volume2 className="w-4 h-4 mr-2" />
+                          {isRTL ? 'توليد صوت السؤال' : 'Generate Voice'}
+                        </Button>
                       </div>
                       <Button
                         variant="ghost"

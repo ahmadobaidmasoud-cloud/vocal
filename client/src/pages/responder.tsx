@@ -195,6 +195,13 @@ export default function ResponderPage() {
     isRTL ? 'ar' : 'en'
   );
 
+  // Auto-play intro TTS when intro screen is shown
+  useEffect(() => {
+    if (showingIntro && survey?.introVoiceUrl && !isMuted && survey?.settings.voiceEnabled) {
+      playTTS(survey.introVoiceUrl);
+    }
+  }, [showingIntro, survey?.introVoiceUrl, isMuted]);
+
   // Auto-detect score from voice
   useEffect(() => {
     if (currentQuestion && (currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10')) {
@@ -334,13 +341,6 @@ export default function ResponderPage() {
       </div>
     );
   }
-
-  // Auto-play intro TTS when intro screen is shown
-  useEffect(() => {
-    if (showingIntro && survey?.introVoiceUrl && !isMuted && survey?.settings.voiceEnabled) {
-      playTTS(survey.introVoiceUrl);
-    }
-  }, [showingIntro, survey?.introVoiceUrl, isMuted]);
 
   if (showingIntro) {
     return (

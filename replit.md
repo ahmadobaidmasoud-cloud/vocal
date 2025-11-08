@@ -71,6 +71,7 @@ VocalSurvey هي منصة استبيانات عربية-عالمية متقدم�
 ### surveys
 - id, title, description, logoUrl, primaryColor
 - isActive, language (ar/en)
+- introText, introVoiceUrl (نص وصوت المقدمة)
 - settings (JSON): voiceEnabled, autoAdvance, allowReplay, showProgressBar
 - createdAt
 
@@ -161,9 +162,19 @@ npm run db:push  # مزامنة Database schema
 ✅ Task 2: Backend Implementation - مكتمل
 ✅ Task 3: Integration & Testing - مكتمل
 ✅ Task 4: Speechmatics Upgrade - مكتمل (v2.0)
-🚀 **Task 5: Analytics Simplified + Excel Export** - مكتمل! (النسخة 2.1)
+✅ Task 5: Analytics Simplified + Excel Export - مكتمل (v2.1)
+🚀 **Task 6: Intro TTS + Auto-Complete + Ultra-Fast STT** - مكتمل! (النسخة 2.2)
 
 ## التحسينات المطبقة
+
+### v2.2 - Intro TTS + Auto-Complete + Ultra-Fast STT
+1. ✅ **Intro TTS**: نقل حقل introText لصفحة الأسئلة + زر توليد TTS للمقدمة
+2. ✅ **Intro Auto-Play**: المقدمة الصوتية تُشغّل تلقائياً قبل السؤال الأول
+3. ✅ **Auto-Complete Final**: السؤال الأخير ينهي تلقائياً (نصي بـ"التالي"، رقمي بعد الاختيار)
+4. ✅ **Final Answer Fix**: handleSubmit يبني finalAnswers snapshot لمنع فقدان الإجابات
+5. ✅ **Ultra-Fast STT**: تقليل توقيت التسجيل من 100ms إلى 1ms بعد TTS
+6. ✅ **API Endpoint**: POST `/api/surveys/:id/generate-intro-voice` لتوليد صوت المقدمة
+7. ✅ **Schema Update**: إضافة `introVoiceUrl` للـsurveys schema
 
 ### v2.1 - Analytics Simplified + Excel Export
 1. ✅ **Clean UI**: إزالة Summary Cards والرسوم البيانية - الجدول فقط
