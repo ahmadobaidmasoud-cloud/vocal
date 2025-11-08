@@ -291,6 +291,18 @@ export default function ResponderPage() {
     setShowingIntro(false);
   };
 
+  // Tutorial voice command: Listen for "next" to complete tutorial
+  useVoiceCommands(
+    tutorialActive && taggedTranscript?.questionId === 'tutorial' ? (taggedTranscript?.text ?? '') : '',
+    [
+      {
+        keywords: VOICE_COMMANDS.next[isRTL ? 'ar' : 'en'],
+        action: handleTutorialComplete,
+      },
+    ],
+    isRTL ? 'ar' : 'en'
+  );
+
   // Voice commands (only process if transcript belongs to current question)
   useVoiceCommands(
     taggedTranscript?.questionId === currentQuestion?.id ? (taggedTranscript?.text ?? '') : '',
