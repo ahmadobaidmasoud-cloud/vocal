@@ -233,14 +233,21 @@ export default function ResponderPage() {
   const handlePrevious = () => {
     if (currentQuestionIndex === 0) return;
     
-    // Save current editable text to answersRef BEFORE navigating (prevents data loss)
-    if (currentQuestion && (currentQuestion.type === 'text' || currentQuestion.type === 'both') && editableText.trim()) {
+    // ALWAYS save current answer to answersRef BEFORE navigating (prevents data loss for both score AND text)
+    if (currentQuestion) {
+      const currentAnswer = answersRef.current[currentQuestion.id] || {};
+      
+      // Save textValue for text/both questions (including empty string to handle deletions)
+      if (currentQuestion.type === 'text' || currentQuestion.type === 'both') {
+        currentAnswer.textValue = editableText;
+      }
+      
+      // Score is already in answersRef from handleScoreSelect, but ensure it's captured
+      // (No action needed here since handleScoreSelect already updates answersRef synchronously)
+      
       const newAnswers = {
         ...answersRef.current,
-        [currentQuestion.id]: { 
-          ...answersRef.current[currentQuestion.id],
-          textValue: editableText 
-        }
+        [currentQuestion.id]: currentAnswer
       };
       answersRef.current = newAnswers; // ← Synchronous update
       setAnswers(newAnswers);
