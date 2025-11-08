@@ -2,12 +2,11 @@ import { useRoute } from 'wouter';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { ArrowLeft, Download, Users, Clock, TrendingUp } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { ArrowLeft, Download } from 'lucide-react';
 import type { SurveyWithQuestions, ResponseWithAnswers } from '@shared/schema';
 import { format } from 'date-fns';
+import * as XLSX from 'xlsx';
 
 export default function AnalyticsPage() {
   const [, params] = useRoute('/survey/:id/analytics');
@@ -25,39 +24,58 @@ export default function AnalyticsPage() {
 
   const isLoading = surveyLoading || responsesLoading;
   const isRTL = survey?.language === 'ar';
-
-  // Calculate analytics
   const totalResponses = responses?.length || 0;
-  const avgDuration = (responses?.reduce((sum, r) => sum + (r.duration || 0), 0) || 0) / Math.max(totalResponses, 1);
 
-  // Question analytics
-  const questionStats = survey?.questions.map(question => {
-    const answers = responses?.flatMap(r => r.answers).filter(a => a.questionId === question.id) || [];
-    const scoreAnswers = answers.filter(a => a.scoreValue !== null).map(a => a.scoreValue!);
-    const textAnswers = answers.filter(a => a.textValue).map(a => a.textValue!);
+  const handleExportToExcel = () => {
+    if (!survey || !responses || responses.length === 0) return;
 
-    const avgScore = scoreAnswers.length > 0
-      ? scoreAnswers.reduce((sum, score) => sum + score, 0) / scoreAnswers.length
-      : 0;
+    const headers = [
+      isRTL ? 'رقم المشارك' : 'ID',
+      ...survey.questions.map((_, index) => isRTL ? `س${index + 1}` : `Q${index + 1}`),
+      isRTL ? 'التاريخ' : 'Date'
+    ];
 
-    const scoreDistribution = Array.from({ length: question.type === 'score_10' ? 10 : 5 }, (_, i) => {
-      const score = i + 1;
-      return {
-        score,
-        count: scoreAnswers.filter(s => s === score).length,
-      };
+    const rows = responses.map((response, responseIndex) => {
+      const answersMap = new Map(response.answers.map(a => [a.questionId, a]));
+      
+      const row = [
+        responseIndex + 1,
+        ...survey.questions.map((question) => {
+          const answer = answersMap.get(question.id);
+          
+          let displayValue = '-';
+          if (question.type === 'both' && answer) {
+            const score = answer.scoreValue !== null && answer.scoreValue !== undefined ? answer.scoreValue : null;
+            const text = answer.textValue || null;
+            if (score !== null && text !== null) {
+              displayValue = `${score} – ${text}`;
+            } else if (score !== null) {
+              displayValue = String(score);
+            } else if (text !== null) {
+              displayValue = text;
+            }
+          } else if (answer?.scoreValue !== null && answer?.scoreValue !== undefined) {
+            displayValue = String(answer.scoreValue);
+          } else if (answer?.textValue) {
+            displayValue = answer.textValue;
+          }
+          
+          return displayValue;
+        }),
+        response.completedAt ? format(new Date(response.completedAt), 'yyyy-MM-dd HH:mm') : '-'
+      ];
+      
+      return row;
     });
 
-    return {
-      question,
-      answersCount: answers.length,
-      avgScore: avgScore.toFixed(1),
-      scoreDistribution,
-      textAnswers,
-    };
-  }) || [];
+    const data = [headers, ...rows];
+    const worksheet = XLSX.utils.aoa_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, isRTL ? 'الردود' : 'Responses');
 
-  const COLORS = ['#22C55E', '#3B82F6', '#8B5CF6', '#F59E0B', '#EF4444'];
+    const filename = `${survey.title}_${isRTL ? 'الردود' : 'responses'}_${format(new Date(), 'yyyy-MM-dd')}.xlsx`;
+    XLSX.writeFile(workbook, filename);
+  };
 
   if (isLoading) {
     return (
@@ -92,111 +110,15 @@ export default function AnalyticsPage() {
               <p className="text-sm text-muted-foreground">{isRTL ? 'التحليلات' : 'Analytics'}</p>
             </div>
           </div>
-          <Button variant="outline" data-testid="button-export">
+          <Button variant="outline" onClick={handleExportToExcel} disabled={totalResponses === 0} data-testid="button-export">
             <Download className="w-4 h-4 mr-2" />
             {isRTL ? 'تصدير' : 'Export'}
           </Button>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card data-testid="card-total-responses">
-            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{isRTL ? 'إجمالي الردود' : 'Total Responses'}</CardTitle>
-              <Users className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-total-responses">{totalResponses}</div>
-            </CardContent>
-          </Card>
-
-          <Card data-testid="card-avg-duration">
-            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{isRTL ? 'متوسط الوقت' : 'Avg Duration'}</CardTitle>
-              <Clock className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-avg-duration">
-                {Math.round(avgDuration / 60)} {isRTL ? 'دقيقة' : 'min'}
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card data-testid="card-completion-rate">
-            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{isRTL ? 'معدل الإكمال' : 'Completion Rate'}</CardTitle>
-              <TrendingUp className="w-4 h-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-completion-rate">100%</div>
-            </CardContent>
-          </Card>
-
-          <Card data-testid="card-questions">
-            <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">{isRTL ? 'عدد الأسئلة' : 'Questions'}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold" data-testid="text-questions-count">{survey.questions.length}</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Question Analytics */}
-        <div className="space-y-6">
-          {questionStats.map((stat, index) => (
-            <Card key={index} data-testid={`card-question-stats-${index}`}>
-              <CardHeader>
-                <CardTitle className="text-lg">{stat.question.text}</CardTitle>
-                <CardDescription>
-                  {isRTL ? `${stat.answersCount} إجابة` : `${stat.answersCount} responses`}
-                  {stat.question.type !== 'text' && (
-                    <Badge variant="secondary" className="ml-2">
-                      {isRTL ? 'المتوسط:' : 'Avg:'} {stat.avgScore}
-                    </Badge>
-                  )}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {(stat.question.type === 'score_5' || stat.question.type === 'score_10' || stat.question.type === 'both') && (
-                  <div className="h-64">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={stat.scoreDistribution}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="score" />
-                        <YAxis />
-                        <Tooltip />
-                        <Bar dataKey="count" fill="#22C55E" />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-
-                {(stat.question.type === 'text' || stat.question.type === 'both') && stat.textAnswers.length > 0 && (
-                  <div className="mt-4 space-y-2" data-testid={`text-answers-${index}`}>
-                    <h4 className="font-medium text-sm">{isRTL ? 'الإجابات النصية:' : 'Text Responses:'}</h4>
-                    <div className="space-y-2 max-h-48 overflow-y-auto">
-                      {stat.textAnswers.slice(0, 10).map((answer, i) => (
-                        <div key={i} className="p-2 bg-muted rounded-lg text-sm" data-testid={`text-answer-${index}-${i}`}>
-                          {answer}
-                        </div>
-                      ))}
-                      {stat.textAnswers.length > 10 && (
-                        <p className="text-xs text-muted-foreground">
-                          {isRTL ? `و ${stat.textAnswers.length - 10} إجابة أخرى...` : `And ${stat.textAnswers.length - 10} more...`}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
         {/* Responses Table */}
         {totalResponses > 0 && (
-          <Card className="mt-8" data-testid="card-responses-table">
+          <Card data-testid="card-responses-table">
             <CardHeader>
               <CardTitle>{isRTL ? 'جدول الردود' : 'Responses Table'}</CardTitle>
               <CardDescription>
