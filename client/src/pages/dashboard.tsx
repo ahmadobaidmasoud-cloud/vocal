@@ -4,11 +4,26 @@ import { Link, useRoute } from 'wouter';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Plus, BarChart3, Settings, ExternalLink, QrCode } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { Plus, BarChart3, Settings, ExternalLink, QrCode, Trash2 } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
 import type { Survey } from '@shared/schema';
 
 export default function DashboardPage() {
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [surveyToDelete, setSurveyToDelete] = useState<string | null>(null);
+  const { toast } = useToast();
+
   const { data: surveys, isLoading } = useQuery<Survey[]>({
     queryKey: ['/api/surveys'],
   });
@@ -24,6 +39,39 @@ export default function DashboardPage() {
       queryClient.invalidateQueries({ queryKey: ['/api/surveys'] });
     },
   });
+
+  const deleteSurveyMutation = useMutation({
+    mutationFn: async (surveyId: string) => {
+      return apiRequest('DELETE', `/api/surveys/${surveyId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/surveys'] });
+      toast({
+        title: 'تم الحذف',
+        description: 'تم حذف الاستبيان بنجاح',
+      });
+      setDeleteDialogOpen(false);
+      setSurveyToDelete(null);
+    },
+    onError: () => {
+      toast({
+        title: 'خطأ',
+        description: 'فشل حذف الاستبيان',
+        variant: 'destructive',
+      });
+    },
+  });
+
+  const handleDeleteClick = (surveyId: string) => {
+    setSurveyToDelete(surveyId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = () => {
+    if (surveyToDelete) {
+      deleteSurveyMutation.mutate(surveyToDelete);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -92,6 +140,16 @@ export default function DashboardPage() {
                       معاينة
                     </Button>
                   </Link>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleDeleteClick(survey.id)}
+                    data-testid={`button-delete-${survey.id}`}
+                    className="text-destructive hover:text-destructive"
+                  >
+                    <Trash2 className="w-4 h-4 mr-1" />
+                    حذف
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -108,6 +166,28 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>هل أنت متأكد من الحذف؟</AlertDialogTitle>
+            <AlertDialogDescription>
+              سيتم حذف الاستبيان وجميع الأسئلة والردود المرتبطة به نهائياً. لا يمكن التراجع عن هذا الإجراء.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">إلغاء</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              disabled={deleteSurveyMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {deleteSurveyMutation.isPending ? 'جاري الحذف...' : 'حذف'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
