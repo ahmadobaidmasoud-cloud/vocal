@@ -31,15 +31,24 @@ export class SpeechmaticsService {
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null; // ← NEW: Keep source reference
+  
+  // ✅ FIX: Track active questionId separately to prevent race conditions
+  // This ensures late transcripts are tagged with the correct question ID
+  private activeQuestionId: string;
+  
+  // ✅ FIX: Track pause timestamp to reject stale transcripts
+  private pauseTimestamp: number = 0;
 
   constructor(config: SpeechmaticsConfig) {
     this.config = config;
+    this.activeQuestionId = config.questionId;
   }
 
   // ← NEW: Update questionId for next question (without reconnecting!)
   updateQuestionId(questionId: string): void {
     this.config.questionId = questionId;
     this.finalTranscript = ''; // Reset transcript for new question
+    console.log(`🔄 Updated questionId to: ${questionId} (will activate on resume)`);
   }
 
   async start(): Promise<void> {
@@ -102,12 +111,15 @@ export class SpeechmaticsService {
 
         case 'AddPartialTranscript':
           {
+            // ✅ Skip if paused (prevents late transcripts from wrong question)
+            if (this.isPaused) break;
+
             const transcript = message.metadata?.transcript || '';
             const confidence = message.results?.[0]?.alternatives?.[0]?.confidence || 0.85;
             
             if (transcript.trim()) {
               this.config.onPartialTranscript?.({
-                questionId: this.config.questionId,
+                questionId: this.activeQuestionId, // ← Use activeQuestionId (stable during recording)
                 text: transcript,
                 confidence,
                 isFinal: false,
@@ -118,6 +130,9 @@ export class SpeechmaticsService {
 
         case 'AddTranscript':
           {
+            // ✅ Skip if paused (prevents late transcripts from wrong question)
+            if (this.isPaused) break;
+
             const transcript = message.metadata?.transcript || '';
             const confidence = message.results?.[0]?.alternatives?.[0]?.confidence || 0.95;
             
@@ -125,7 +140,7 @@ export class SpeechmaticsService {
               // Append to final transcript
               this.finalTranscript += (this.finalTranscript ? ' ' : '') + transcript;
               this.config.onFinalTranscript?.({
-                questionId: this.config.questionId,
+                questionId: this.activeQuestionId, // ← Use activeQuestionId (stable during recording)
                 text: this.finalTranscript,
                 confidence,
                 isFinal: true,
@@ -221,16 +236,30 @@ export class SpeechmaticsService {
     if (!this.isActive || this.isPaused) return;
     
     this.isPaused = true;
+    this.pauseTimestamp = Date.now(); // ← Record when we paused
     console.log('⏸️ Recording paused (keeping connection alive)');
   }
 
   // ← NEW: Resume recording (instant restart!)
-  resume(): void {
+  async resume(): Promise<void> {
     if (!this.isActive || !this.isPaused) return;
     
+    // ✅ CRITICAL FIX: Wait for in-flight transcripts to drain (150ms buffer)
+    // This ensures any recognition events from the previous question arrive
+    // while isPaused=true and get rejected, preventing mis-tagging
+    const timeSincePause = Date.now() - this.pauseTimestamp;
+    const drainDelay = Math.max(0, 150 - timeSincePause);
+    
+    if (drainDelay > 0) {
+      console.log(`⏳ Waiting ${drainDelay}ms for in-flight transcripts to drain...`);
+      await new Promise(resolve => setTimeout(resolve, drainDelay));
+    }
+    
+    // ✅ Now it's safe to update questionId and resume
+    this.activeQuestionId = this.config.questionId;
     this.isPaused = false;
     this.finalTranscript = ''; // Reset for new question
-    console.log('▶️ Recording resumed');
+    console.log(`▶️ Recording resumed for question: ${this.activeQuestionId}`);
   }
 
   async stop(): Promise<void> {

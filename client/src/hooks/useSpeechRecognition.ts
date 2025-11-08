@@ -67,7 +67,7 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
         console.log('♻️ Reusing existing Speechmatics session (ultra-fast!)');
         serviceRef.current.pause();
         serviceRef.current.updateQuestionId(questionId);
-        serviceRef.current.resume();
+        await serviceRef.current.resume(); // ← Now async (waits for drain)
         setIsListening(true);
         return;
       }
@@ -143,7 +143,7 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
       } else {
         // Service exists but was paused - just update and resume
         serviceRef.current.updateQuestionId(questionId);
-        serviceRef.current.resume();
+        await serviceRef.current.resume(); // ← Now async (waits for drain)
         setIsListening(true);
       }
 
