@@ -237,13 +237,18 @@ export default function ResponderPage() {
     if (currentQuestion) {
       const currentAnswer = answersRef.current[currentQuestion.id] || {};
       
+      // Explicitly copy scoreValue from answers state (handles rapid score changes before backward nav)
+      if (currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10' || currentQuestion.type === 'both') {
+        const latestScore = answers[currentQuestion.id]?.scoreValue;
+        if (latestScore !== undefined) {
+          currentAnswer.scoreValue = latestScore;
+        }
+      }
+      
       // Save textValue for text/both questions (including empty string to handle deletions)
       if (currentQuestion.type === 'text' || currentQuestion.type === 'both') {
         currentAnswer.textValue = editableText;
       }
-      
-      // Score is already in answersRef from handleScoreSelect, but ensure it's captured
-      // (No action needed here since handleScoreSelect already updates answersRef synchronously)
       
       const newAnswers = {
         ...answersRef.current,
@@ -253,8 +258,16 @@ export default function ResponderPage() {
       setAnswers(newAnswers);
     }
     
-    // Remove last message from history
-    setConversationHistory(prev => prev.slice(0, -1));
+    // Update conversationHistory by removing the previous question's entry
+    // (currentQuestionIndex-1 because current question hasn't been added to history yet)
+    setConversationHistory(prev => {
+      const newHistory = [...prev];
+      const indexToRemove = currentQuestionIndex - 1;
+      if (indexToRemove >= 0 && indexToRemove < newHistory.length) {
+        newHistory.splice(indexToRemove, 1);
+      }
+      return newHistory;
+    });
     
     stopListening();
     resetTranscript();
