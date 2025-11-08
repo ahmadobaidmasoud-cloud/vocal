@@ -15,7 +15,7 @@ interface UseSpeechRecognitionReturn {
   isSupported: boolean;
   error: string | null;
   startListening: (questionId: string) => Promise<void>;
-  stopListening: () => void;
+  stopListening: () => Promise<void>; // ✅ Async to ensure clean teardown
   resetTranscript: () => void;
 }
 
