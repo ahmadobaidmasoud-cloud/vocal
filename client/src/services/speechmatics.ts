@@ -25,13 +25,21 @@ export class SpeechmaticsService {
   private client: RealtimeClient | null = null;
   private config: SpeechmaticsConfig;
   private isActive = false;
+  private isPaused = false; // ← NEW: Track pause state
   private finalTranscript = '';
   private mediaStream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
+  private source: MediaStreamAudioSourceNode | null = null; // ← NEW: Keep source reference
 
   constructor(config: SpeechmaticsConfig) {
     this.config = config;
+  }
+
+  // ← NEW: Update questionId for next question (without reconnecting!)
+  updateQuestionId(questionId: string): void {
+    this.config.questionId = questionId;
+    this.finalTranscript = ''; // Reset transcript for new question
   }
 
   async start(): Promise<void> {
@@ -158,7 +166,13 @@ export class SpeechmaticsService {
 
   private async startMicrophoneCapture(): Promise<void> {
     try {
-      // Get microphone stream
+      // ✅ OPTIMIZATION 3: Reuse existing audio pipeline if available
+      if (this.mediaStream && this.audioContext && this.processor && this.source) {
+        console.log('♻️ Reusing existing audio pipeline (ultra-fast!)');
+        return;
+      }
+
+      // Get microphone stream (only once!)
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -169,14 +183,14 @@ export class SpeechmaticsService {
         },
       });
 
-      // Create audio processing chain
+      // Create audio processing chain (only once!)
       this.audioContext = new AudioContext({ sampleRate: 16000 });
-      const source = this.audioContext.createMediaStreamSource(this.mediaStream);
+      this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
       this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
       // Process and send audio data
       this.processor.onaudioprocess = (e) => {
-        if (!this.client || !this.isActive) return;
+        if (!this.client || !this.isActive || this.isPaused) return; // ← Don't send when paused
 
         const audioData = e.inputBuffer.getChannelData(0);
         const int16Data = new Int16Array(audioData.length);
@@ -191,7 +205,7 @@ export class SpeechmaticsService {
         this.client.sendAudio(int16Data.buffer);
       };
 
-      source.connect(this.processor);
+      this.source.connect(this.processor);
       this.processor.connect(this.audioContext.destination);
 
       console.log('🎤 Microphone capture started');
@@ -202,6 +216,23 @@ export class SpeechmaticsService {
     }
   }
 
+  // ← NEW: Pause recording (keep connection alive!)
+  pause(): void {
+    if (!this.isActive || this.isPaused) return;
+    
+    this.isPaused = true;
+    console.log('⏸️ Recording paused (keeping connection alive)');
+  }
+
+  // ← NEW: Resume recording (instant restart!)
+  resume(): void {
+    if (!this.isActive || !this.isPaused) return;
+    
+    this.isPaused = false;
+    this.finalTranscript = ''; // Reset for new question
+    console.log('▶️ Recording resumed');
+  }
+
   async stop(): Promise<void> {
     if (!this.isActive) return;
 
@@ -210,6 +241,11 @@ export class SpeechmaticsService {
       if (this.processor) {
         this.processor.disconnect();
         this.processor = null;
+      }
+
+      if (this.source) {
+        this.source.disconnect();
+        this.source = null;
       }
 
       if (this.mediaStream) {
@@ -229,6 +265,7 @@ export class SpeechmaticsService {
       }
 
       this.isActive = false;
+      this.isPaused = false;
       this.finalTranscript = '';
 
       console.log('🛑 Speechmatics stopped');
@@ -239,7 +276,7 @@ export class SpeechmaticsService {
   }
 
   isRunning(): boolean {
-    return this.isActive;
+    return this.isActive && !this.isPaused;
   }
 
   reset(): void {

@@ -38,6 +38,10 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
   const [isSupported, setIsSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const serviceRef = useRef<SpeechmaticsService | null>(null);
+  
+  // ✅ OPTIMIZATION 1: Cache JWT token (1-hour TTL)
+  const tokenRef = useRef<string | null>(null);
+  const tokenExpiryRef = useRef<number>(0);
 
   useEffect(() => {
     // Speechmatics is supported if we can access backend
@@ -51,76 +55,109 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
   }, []);
 
   const startListening = useCallback(async (questionId: string) => {
-    if (!isSupported || isListening) return;
+    if (!isSupported) return;
 
     setError(null);
     setTranscript(null);
     setPartialTranscript(null);
 
     try {
-      // Fetch temporary JWT token from backend (secure!)
-      const response = await fetch('/api/speechmatics/token', {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to get speech recognition token');
+      // ✅ OPTIMIZATION 2 & 3: Reuse existing service + connection if available
+      if (serviceRef.current && serviceRef.current.isRunning()) {
+        console.log('♻️ Reusing existing Speechmatics session (ultra-fast!)');
+        serviceRef.current.pause();
+        serviceRef.current.updateQuestionId(questionId);
+        serviceRef.current.resume();
+        setIsListening(true);
+        return;
       }
 
-      const { token } = await response.json();
+      // ✅ OPTIMIZATION 1: Reuse cached JWT token if valid
+      const now = Date.now();
+      let token = tokenRef.current;
+
+      if (!token || now >= tokenExpiryRef.current) {
+        console.log('🔑 Fetching new JWT token...');
+        const response = await fetch('/api/speechmatics/token', {
+          method: 'POST',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to get speech recognition token');
+        }
+
+        const data = await response.json();
+        token = data.token;
+        
+        // Cache token for 55 minutes (safe margin before 60min expiry)
+        tokenRef.current = token;
+        tokenExpiryRef.current = now + (55 * 60 * 1000);
+        console.log('✅ JWT token cached (valid for 55min)');
+      } else {
+        console.log('♻️ Reusing cached JWT token');
+      }
 
       // Determine language code
       const lang = language.startsWith('ar') ? 'ar' : 'en';
 
-      // Create new Speechmatics service with questionId + callbacks
-      serviceRef.current = new SpeechmaticsService({
-        questionId, // ← Capture question ID in service instance
-        language: lang,
-        jwt: token,
-        onPartialTranscript: (payload: TranscriptPayload) => {
-          setPartialTranscript({
-            questionId: payload.questionId,
-            text: cleanVoiceTranscript(payload.text),
-            confidence: payload.confidence,
-            isFinal: false,
-          });
-        },
-        onFinalTranscript: (payload: TranscriptPayload) => {
-          setTranscript({
-            questionId: payload.questionId,
-            text: cleanVoiceTranscript(payload.text),
-            confidence: payload.confidence,
-            isFinal: true,
-          });
-          setPartialTranscript(null); // Clear partial when we get final
-        },
-        onError: (errorMessage) => {
-          console.error('Speechmatics error:', errorMessage);
-          setError(errorMessage);
-          setIsListening(false);
-        },
-        onSessionStarted: () => {
-          console.log(`🎤 Recording started for question: ${questionId}`);
-          setIsListening(true);
-        },
-        onSessionEnded: () => {
-          console.log('🛑 Recording ended');
-          setIsListening(false);
-        },
-      });
+      // Create Speechmatics service ONCE (or reuse existing)
+      if (!serviceRef.current) {
+        console.log('🆕 Creating new Speechmatics service...');
+        serviceRef.current = new SpeechmaticsService({
+          questionId,
+          language: lang,
+          jwt: token!,
+          onPartialTranscript: (payload: TranscriptPayload) => {
+            setPartialTranscript({
+              questionId: payload.questionId,
+              text: cleanVoiceTranscript(payload.text),
+              confidence: payload.confidence,
+              isFinal: false,
+            });
+          },
+          onFinalTranscript: (payload: TranscriptPayload) => {
+            setTranscript({
+              questionId: payload.questionId,
+              text: cleanVoiceTranscript(payload.text),
+              confidence: payload.confidence,
+              isFinal: true,
+            });
+            setPartialTranscript(null);
+          },
+          onError: (errorMessage) => {
+            console.error('Speechmatics error:', errorMessage);
+            setError(errorMessage);
+            setIsListening(false);
+          },
+          onSessionStarted: () => {
+            console.log(`🎤 Recording started for question: ${questionId}`);
+            setIsListening(true);
+          },
+          onSessionEnded: () => {
+            console.log('🛑 Recording ended');
+            setIsListening(false);
+          },
+        });
 
-      await serviceRef.current.start();
+        await serviceRef.current.start();
+      } else {
+        // Service exists but was paused - just update and resume
+        serviceRef.current.updateQuestionId(questionId);
+        serviceRef.current.resume();
+        setIsListening(true);
+      }
 
     } catch (err: any) {
       console.error('Failed to start speech recognition:', err);
       setError(err.message || 'Failed to start');
       setIsListening(false);
     }
-  }, [isSupported, isListening, language]);
+  }, [isSupported, language]);
 
   const stopListening = useCallback(() => {
     if (serviceRef.current && isListening) {
-      serviceRef.current.stop();
+      // ✅ Use pause instead of stop (keep connection alive!)
+      serviceRef.current.pause();
       setIsListening(false);
     }
   }, [isListening]);
