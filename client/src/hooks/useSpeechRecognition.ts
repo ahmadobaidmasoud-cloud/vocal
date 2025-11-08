@@ -242,9 +242,11 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
       // Start to trigger getUserMedia and initialize audio pipeline
       await serviceRef.current.start();
       
-      // Immediately mute and stop (we just wanted to prime the pipeline)
-      serviceRef.current.muteAudio();
+      // Stop the priming session (we just wanted to initialize getUserMedia)
       await serviceRef.current.stop();
+      
+      // ✅ Ensure mic is unmuted after priming (ready for tutorial/questions)
+      await serviceRef.current.unmuteAudio();
       
       setIsPrimed(true);
       console.log('✅ Audio pipeline primed successfully!');

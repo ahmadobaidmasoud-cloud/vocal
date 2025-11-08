@@ -148,7 +148,13 @@ export default function ResponderPage() {
         }, 200); // Small delay for audio context to resume
       }
     };
-    audio.onerror = () => setIsPlaying(false);
+    audio.onerror = async () => {
+      setIsPlaying(false);
+      // ✅ CRITICAL: Unmute mic even if TTS fails (prevent permanent mute)
+      if (survey?.settings.voiceEnabled && isPrimed) {
+        await unmuteAudio();
+      }
+    };
     audio.play();
     setAudioElement(audio);
   }, [audioElement, survey, currentQuestion, isPrimed, muteAudio, unmuteAudio]);
