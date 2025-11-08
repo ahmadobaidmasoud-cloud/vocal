@@ -527,23 +527,73 @@ export default function ResponderPage() {
               </div>
             )}
 
-            <div className="flex justify-center gap-3">
-              <Button
-                onClick={() => setShowingIntro(false)}
-                className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-xl"
-                data-testid="button-start"
-              >
-                {isRTL ? 'ابدأ الآن' : 'Start Now'}
-              </Button>
+            {/* Tutorial Mode UI */}
+            {tutorialActive && (
+              <div className="mb-6 space-y-4">
+                {isListening ? (
+                  <div className="text-center space-y-3">
+                    <Badge className="bg-red-500 text-white animate-pulse text-base px-4 py-2">
+                      <Mic className="w-4 h-4 mr-2" />
+                      {isRTL ? '🎙️ يسجل الآن...' : '🎙️ Recording...'}
+                    </Badge>
+                    
+                    <div className="bg-green-50 border-2 border-green-500 rounded-xl p-6">
+                      <p className="text-green-700 font-bold text-xl mb-2">
+                        {isRTL ? '✅ ممتاز! الميكروفون جاهز' : '✅ Great! Microphone Ready'}
+                      </p>
+                      <p className="text-green-600 text-lg">
+                        {isRTL ? '💬 قل كلمة "التالي" للمتابعة' : '💬 Say "Next" to continue'}
+                      </p>
+                      {taggedPartialTranscript?.text && (
+                        <p className="text-gray-500 mt-3 text-sm">
+                          {isRTL ? 'سمعتك تقول:' : 'I heard:'} "{taggedPartialTranscript.text}"
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex justify-center">
+                    <Badge className="bg-yellow-100 text-yellow-700 animate-pulse">
+                      {isRTL ? '⏳ جاري الاتصال...' : '⏳ Connecting...'}
+                    </Badge>
+                  </div>
+                )}
+              </div>
+            )}
 
-              {survey.settings.voiceEnabled && (
+            <div className="flex justify-center gap-3">
+              {!tutorialActive ? (
+                <>
+                  <Button
+                    onClick={survey.settings.voiceEnabled ? handleTutorialStart : () => setShowingIntro(false)}
+                    className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-xl"
+                    data-testid="button-start"
+                  >
+                    {survey.settings.voiceEnabled 
+                      ? (isRTL ? '🎤 اختبر الميكروفون' : '🎤 Test Microphone')
+                      : (isRTL ? 'ابدأ الآن' : 'Start Now')
+                    }
+                  </Button>
+
+                  {survey.settings.voiceEnabled && (
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsMuted(!isMuted)}
+                      className="px-4"
+                      data-testid="button-toggle-sound"
+                    >
+                      {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                    </Button>
+                  )}
+                </>
+              ) : (
                 <Button
                   variant="outline"
-                  onClick={() => setIsMuted(!isMuted)}
-                  className="px-4"
-                  data-testid="button-toggle-sound"
+                  onClick={handleTutorialComplete}
+                  className="px-6 py-3"
+                  data-testid="button-skip-tutorial"
                 >
-                  {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                  {isRTL ? 'تخطي (بدون صوت)' : 'Skip (No Voice)'}
                 </Button>
               )}
             </div>
