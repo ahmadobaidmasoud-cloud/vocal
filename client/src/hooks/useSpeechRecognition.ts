@@ -14,6 +14,7 @@ interface UseSpeechRecognitionReturn {
   isListening: boolean;
   isSupported: boolean;
   error: string | null;
+  hasMicPermission: boolean; // ✅ Track if user granted mic access
   startListening: (questionId: string) => Promise<void>;
   stopListening: () => Promise<void>; // ✅ Async to ensure clean teardown
   resetTranscript: () => void;
@@ -37,6 +38,7 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasMicPermission, setHasMicPermission] = useState(false); // ✅ iOS Safari fix
   const serviceRef = useRef<SpeechmaticsService | null>(null);
   
   // ✅ OPTIMIZATION 1: Cache JWT token (1-hour TTL)
@@ -137,10 +139,21 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
       }
 
       await serviceRef.current.start();
+      
+      // ✅ iOS Safari fix: Mark permission granted after successful start
+      setHasMicPermission(true);
 
     } catch (err: any) {
       console.error('Failed to start speech recognition:', err);
-      setError(err.message || 'Failed to start');
+      
+      // ✅ iOS Safari: Check if permission denied
+      if (err.message?.includes('NotAllowedError') || err.message?.includes('not allowed')) {
+        setError('الميكروفون غير مسموح - اضغط زر الميكروفون للسماح');
+        setHasMicPermission(false);
+      } else {
+        setError(err.message || 'Failed to start');
+      }
+      
       setIsListening(false);
     }
   }, [isSupported, isListening, language]);
@@ -166,6 +179,7 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
     isListening,
     isSupported,
     error,
+    hasMicPermission, // ✅ iOS Safari fix
     startListening,
     stopListening,
     resetTranscript,

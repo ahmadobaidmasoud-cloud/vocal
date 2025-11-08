@@ -18,6 +18,7 @@ import {
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useVoiceCommands, VOICE_COMMANDS, extractNumberFromTranscript } from '@/hooks/useVoiceCommands';
 import { apiRequest, queryClient } from '@/lib/queryClient';
+import { useToast } from '@/hooks/use-toast';
 import type { SurveyWithQuestions, InsertResponse, InsertAnswer, Question } from '@shared/schema';
 
 interface ConversationMessage {
@@ -33,6 +34,7 @@ interface ConversationMessage {
 export default function ResponderPage() {
   const [, params] = useRoute('/survey/:id');
   const surveyId = params?.id;
+  const { toast } = useToast();
 
   const [showingIntro, setShowingIntro] = useState(true);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -47,6 +49,7 @@ export default function ResponderPage() {
   const autoStartedRef = useRef<string | null>(null);
   const userStoppedManuallyRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const micPermissionToastShownRef = useRef(false); // ✅ Prevent toast spam
   
   // Ref to track latest answers state (prevents stale state reads in rapid navigation)
   const answersRef = useRef(answers);
@@ -65,6 +68,7 @@ export default function ResponderPage() {
     isListening, 
     isSupported,
     error: speechError,
+    hasMicPermission, // ✅ iOS Safari fix
     startListening, 
     stopListening, 
     resetTranscript 
@@ -141,12 +145,18 @@ export default function ResponderPage() {
   const handleAutoStartListening = useCallback(() => {
     if (!isSupported || !survey?.settings.voiceEnabled || !currentQuestion) return;
     
+    // ✅ iOS Safari fix: Don't auto-start until user grants mic permission via button
+    if (!hasMicPermission) {
+      console.log('⏸️ Auto-start blocked - waiting for user to grant mic permission');
+      return;
+    }
+    
     setTimeout(() => {
       resetTranscript();
       startListening(currentQuestion.id); // ← Pass question ID to startListening
       autoStartedRef.current = currentQuestion.id;
     }, 0); // ← Ultra-instant: 0ms delay!
-  }, [isSupported, survey, currentQuestion, startListening, resetTranscript]);
+  }, [isSupported, survey, currentQuestion, startListening, resetTranscript, hasMicPermission]);
 
   // When question changes, load saved answer and reset flags
   useEffect(() => {
@@ -173,6 +183,23 @@ export default function ResponderPage() {
       setEditableText(taggedTranscript.text);
     }
   }, [taggedTranscript, currentQuestion]);
+
+  // ✅ iOS Safari fix: Show toast when mic permission needed
+  useEffect(() => {
+    if (showingIntro || tutorialActive || !survey?.settings.voiceEnabled || !currentQuestion) return;
+    
+    // Show toast only once per session when permission is not granted
+    if (!hasMicPermission && !micPermissionToastShownRef.current && !isListening) {
+      toast({
+        title: isRTL ? '🎤 الميكروفون' : '🎤 Microphone',
+        description: isRTL 
+          ? 'اضغط زر الميكروفون أدناه للإجابة بالصوت'
+          : 'Tap the microphone button below to answer with your voice',
+        duration: 5000,
+      });
+      micPermissionToastShownRef.current = true;
+    }
+  }, [hasMicPermission, showingIntro, tutorialActive, survey, currentQuestion, isListening, toast, isRTL]);
 
   // Fallback: Auto-start recording for questions without TTS or when TTS fails (but not during intro)
   useEffect(() => {
