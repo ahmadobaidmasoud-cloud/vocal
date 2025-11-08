@@ -37,6 +37,11 @@ export class SpeechmaticsService {
     this.config = config;
   }
 
+  // ✅ Update config for new question (reuse same service instance!)
+  updateConfig(newConfig: Partial<SpeechmaticsConfig>): void {
+    this.config = { ...this.config, ...newConfig };
+  }
+
   async start(): Promise<void> {
     if (this.isActive) {
       console.warn('Speechmatics session already active');
@@ -215,19 +220,22 @@ export class SpeechmaticsService {
     if (!this.isActive) return;
 
     try {
+      // ✅ Set isActive=false IMMEDIATELY to allow next session to start
+      this.isActive = false;
+      this.finalTranscript = '';
+
       // Stop recognition session (but keep audio pipeline alive!)
       if (this.client) {
         await this.client.stopRecognition();
         this.client = null;
       }
 
-      this.isActive = false;
-      this.finalTranscript = '';
-
       console.log('🛑 Speechmatics session stopped (audio pipeline kept alive)');
 
     } catch (error) {
       console.error('Error stopping Speechmatics:', error);
+      // Ensure isActive is false even on error
+      this.isActive = false;
     }
   }
 

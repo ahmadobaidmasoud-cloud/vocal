@@ -92,43 +92,49 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
       // Determine language code
       const lang = language.startsWith('ar') ? 'ar' : 'en';
 
-      // Create new Speechmatics service for each question (WebSocket reconnect)
-      // Audio pipeline is reused automatically (optimization 2)
-      serviceRef.current = new SpeechmaticsService({
-        questionId,
-        language: lang,
-        jwt: token!,
-        onPartialTranscript: (payload: TranscriptPayload) => {
-          setPartialTranscript({
-            questionId: payload.questionId,
-            text: cleanVoiceTranscript(payload.text),
-            confidence: payload.confidence,
-            isFinal: false,
-          });
-        },
-        onFinalTranscript: (payload: TranscriptPayload) => {
-          setTranscript({
-            questionId: payload.questionId,
-            text: cleanVoiceTranscript(payload.text),
-            confidence: payload.confidence,
-            isFinal: true,
-          });
-          setPartialTranscript(null);
-        },
-        onError: (errorMessage) => {
-          console.error('Speechmatics error:', errorMessage);
-          setError(errorMessage);
-          setIsListening(false);
-        },
-        onSessionStarted: () => {
-          console.log(`🎤 Recording started for question: ${questionId}`);
-          setIsListening(true);
-        },
-        onSessionEnded: () => {
-          console.log('🛑 Recording ended');
-          setIsListening(false);
-        },
-      });
+      // ✅ OPTIMIZATION 2: Reuse service instance to keep audio pipeline alive
+      if (!serviceRef.current) {
+        console.log('🆕 Creating new Speechmatics service (first time)');
+        serviceRef.current = new SpeechmaticsService({
+          questionId,
+          language: lang,
+          jwt: token!,
+          onPartialTranscript: (payload: TranscriptPayload) => {
+            setPartialTranscript({
+              questionId: payload.questionId,
+              text: cleanVoiceTranscript(payload.text),
+              confidence: payload.confidence,
+              isFinal: false,
+            });
+          },
+          onFinalTranscript: (payload: TranscriptPayload) => {
+            setTranscript({
+              questionId: payload.questionId,
+              text: cleanVoiceTranscript(payload.text),
+              confidence: payload.confidence,
+              isFinal: true,
+            });
+            setPartialTranscript(null);
+          },
+          onError: (errorMessage) => {
+            console.error('Speechmatics error:', errorMessage);
+            setError(errorMessage);
+            setIsListening(false);
+          },
+          onSessionStarted: () => {
+            console.log(`🎤 Recording started for question: ${questionId}`);
+            setIsListening(true);
+          },
+          onSessionEnded: () => {
+            console.log('🛑 Recording ended');
+            setIsListening(false);
+          },
+        });
+      } else {
+        // Reuse existing service - just update questionId and JWT
+        console.log('♻️ Reusing existing service instance (audio pipeline kept!)');
+        serviceRef.current.updateConfig({ questionId, jwt: token! });
+      }
 
       await serviceRef.current.start();
 
@@ -139,9 +145,9 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
     }
   }, [isSupported, isListening, language]);
 
-  const stopListening = useCallback(() => {
+  const stopListening = useCallback(async () => {
     if (serviceRef.current && isListening) {
-      serviceRef.current.stop();
+      await serviceRef.current.stop(); // ✅ Await to ensure clean teardown
       setIsListening(false);
     }
   }, [isListening]);

@@ -191,7 +191,7 @@ export default function ResponderPage() {
   }, [currentQuestion?.id, isMuted, isListening, isPlaying, survey, handleAutoStartListening, showingIntro]);
 
   // Navigation handlers
-  const handleNext = () => {
+  const handleNext = async () => {
     if (!currentQuestion) return;
     
     // For text/both questions, update answersRef synchronously BEFORE reading it
@@ -226,12 +226,12 @@ export default function ResponderPage() {
       }
     ]);
 
-    stopListening();
+    await stopListening(); // ✅ Await to ensure clean teardown before next question
     resetTranscript();
     setCurrentQuestionIndex(prev => Math.min(prev + 1, (survey?.questions.length || 1) - 1));
   };
 
-  const handlePrevious = () => {
+  const handlePrevious = async () => {
     if (currentQuestionIndex === 0) return;
     
     // ALWAYS save current answer to answersRef BEFORE navigating (prevents data loss for both score AND text)
@@ -270,7 +270,7 @@ export default function ResponderPage() {
       return newHistory;
     });
     
-    stopListening();
+    await stopListening(); // ✅ Await to ensure clean teardown before previous question
     resetTranscript();
     setCurrentQuestionIndex(prev => Math.max(prev - 1, 0));
   };
@@ -294,9 +294,9 @@ export default function ResponderPage() {
   };
 
   // Tutorial: Complete and start survey
-  const handleTutorialComplete = () => {
+  const handleTutorialComplete = async () => {
     setTutorialActive(false);
-    stopListening();
+    await stopListening(); // ✅ Await to ensure clean teardown
     resetTranscript();
     setShowingIntro(false);
   };
