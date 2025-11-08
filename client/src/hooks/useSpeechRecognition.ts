@@ -1,14 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SpeechmaticsService } from '@/services/speechmatics';
+import { SpeechmaticsService, TranscriptPayload } from '@/services/speechmatics';
+
+export interface TaggedTranscript {
+  questionId: string;
+  text: string;
+  confidence: number;
+  isFinal: boolean;
+}
 
 interface UseSpeechRecognitionReturn {
-  transcript: string;
-  partialTranscript: string;
+  transcript: TaggedTranscript | null;
+  partialTranscript: TaggedTranscript | null;
   isListening: boolean;
   isSupported: boolean;
-  confidence: number;
   error: string | null;
-  startListening: () => void;
+  startListening: (questionId: string) => Promise<void>;
   stopListening: () => void;
   resetTranscript: () => void;
 }
@@ -26,11 +32,10 @@ function cleanVoiceTranscript(text: string): string {
 }
 
 export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecognitionReturn {
-  const [transcript, setTranscript] = useState('');
-  const [partialTranscript, setPartialTranscript] = useState('');
+  const [transcript, setTranscript] = useState<TaggedTranscript | null>(null);
+  const [partialTranscript, setPartialTranscript] = useState<TaggedTranscript | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
-  const [confidence, setConfidence] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const serviceRef = useRef<SpeechmaticsService | null>(null);
 
@@ -45,13 +50,12 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
     };
   }, []);
 
-  const startListening = useCallback(async () => {
+  const startListening = useCallback(async (questionId: string) => {
     if (!isSupported || isListening) return;
 
     setError(null);
-    setTranscript('');
-    setPartialTranscript('');
-    setConfidence(0);
+    setTranscript(null);
+    setPartialTranscript(null);
 
     try {
       // Fetch temporary JWT token from backend (secure!)
@@ -68,18 +72,27 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
       // Determine language code
       const lang = language.startsWith('ar') ? 'ar' : 'en';
 
-      // Create new Speechmatics service with secure JWT token
+      // Create new Speechmatics service with questionId + callbacks
       serviceRef.current = new SpeechmaticsService({
+        questionId, // ← Capture question ID in service instance
         language: lang,
         jwt: token,
-        onPartialTranscript: (text, conf) => {
-          setPartialTranscript(cleanVoiceTranscript(text));
-          setConfidence(conf);
+        onPartialTranscript: (payload: TranscriptPayload) => {
+          setPartialTranscript({
+            questionId: payload.questionId,
+            text: cleanVoiceTranscript(payload.text),
+            confidence: payload.confidence,
+            isFinal: false,
+          });
         },
-        onFinalTranscript: (text, conf) => {
-          setTranscript(cleanVoiceTranscript(text));
-          setConfidence(conf);
-          setPartialTranscript(''); // Clear partial when we get final
+        onFinalTranscript: (payload: TranscriptPayload) => {
+          setTranscript({
+            questionId: payload.questionId,
+            text: cleanVoiceTranscript(payload.text),
+            confidence: payload.confidence,
+            isFinal: true,
+          });
+          setPartialTranscript(null); // Clear partial when we get final
         },
         onError: (errorMessage) => {
           console.error('Speechmatics error:', errorMessage);
@@ -87,7 +100,7 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
           setIsListening(false);
         },
         onSessionStarted: () => {
-          console.log('🎤 Recording started');
+          console.log(`🎤 Recording started for question: ${questionId}`);
           setIsListening(true);
         },
         onSessionEnded: () => {
@@ -113,9 +126,8 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
   }, [isListening]);
 
   const resetTranscript = useCallback(() => {
-    setTranscript('');
-    setPartialTranscript('');
-    setConfidence(0);
+    setTranscript(null);
+    setPartialTranscript(null);
     if (serviceRef.current) {
       serviceRef.current.reset();
     }
@@ -126,7 +138,6 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
     partialTranscript,
     isListening,
     isSupported,
-    confidence,
     error,
     startListening,
     stopListening,

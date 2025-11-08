@@ -3,22 +3,31 @@ import { useRoute } from 'wouter';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { 
   Volume2, 
   VolumeX, 
   Mic, 
   MicOff, 
-  ChevronLeft, 
-  ChevronRight, 
   Send,
-  RotateCcw 
+  ArrowRight,
+  Check,
+  CheckCheck
 } from 'lucide-react';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useVoiceCommands, VOICE_COMMANDS, extractNumberFromTranscript } from '@/hooks/useVoiceCommands';
 import { apiRequest, queryClient } from '@/lib/queryClient';
-import type { SurveyWithQuestions, InsertResponse, InsertAnswer } from '@shared/schema';
+import type { SurveyWithQuestions, InsertResponse, InsertAnswer, Question } from '@shared/schema';
+
+interface ConversationMessage {
+  questionId: string;
+  questionText: string;
+  questionType: 'score_5' | 'score_10' | 'text' | 'both';
+  answer?: {
+    scoreValue?: number;
+    textValue?: string;
+  };
+}
 
 export default function ResponderPage() {
   const [, params] = useRoute('/survey/:id');
@@ -26,6 +35,7 @@ export default function ResponderPage() {
 
   const [showingIntro, setShowingIntro] = useState(true);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [answers, setAnswers] = useState<Record<string, { scoreValue?: number; textValue?: string }>>({});
   const [isMuted, setIsMuted] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -34,6 +44,7 @@ export default function ResponderPage() {
   const [isCompleted, setIsCompleted] = useState(false);
   const autoStartedRef = useRef<string | null>(null);
   const userStoppedManuallyRef = useRef(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   const { data: survey, isLoading } = useQuery<SurveyWithQuestions>({
     queryKey: ['/api/surveys', surveyId],
@@ -41,9 +52,8 @@ export default function ResponderPage() {
   });
 
   const { 
-    transcript, 
-    partialTranscript,
-    confidence,
+    transcript: taggedTranscript, 
+    partialTranscript: taggedPartialTranscript,
     isListening, 
     isSupported,
     error: speechError,
@@ -64,8 +74,23 @@ export default function ResponderPage() {
 
   const currentQuestion = survey?.questions?.[currentQuestionIndex];
   const isLastQuestion = currentQuestionIndex === (survey?.questions?.length || 0) - 1;
-  const progress = survey ? ((currentQuestionIndex + 1) / survey.questions.length) * 100 : 0;
   const isRTL = survey?.language === 'ar';
+
+  // Check if current question has an answer (check persisted state first, then editable text)
+  const hasAnswer = currentQuestion && (
+    (currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10') 
+      ? !!answers[currentQuestion.id]?.scoreValue 
+      : (currentQuestion.type === 'text' 
+          ? (!!answers[currentQuestion.id]?.textValue || !!editableText.trim())
+          : (currentQuestion.type === 'both' 
+              ? (!!answers[currentQuestion.id]?.scoreValue || !!answers[currentQuestion.id]?.textValue || !!editableText.trim())
+              : false))
+  );
+
+  // Auto-scroll to bottom when new message appears
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [conversationHistory, currentQuestionIndex]);
 
   // Check if we should show intro
   useEffect(() => {
@@ -73,6 +98,13 @@ export default function ResponderPage() {
       setShowingIntro(!!survey.introText && survey.introText.trim().length > 0);
     }
   }, [survey]);
+
+  // Auto-play intro TTS when intro screen is shown
+  useEffect(() => {
+    if (showingIntro && survey?.introVoiceUrl && !isMuted && survey?.settings.voiceEnabled) {
+      playTTS(survey.introVoiceUrl);
+    }
+  }, [showingIntro, survey?.introVoiceUrl, isMuted]);
 
   // Auto-play TTS when question changes (but not during intro)
   useEffect(() => {
@@ -103,22 +135,36 @@ export default function ResponderPage() {
     
     setTimeout(() => {
       resetTranscript();
-      startListening();
+      startListening(currentQuestion.id); // ← Pass question ID to startListening
       autoStartedRef.current = currentQuestion.id;
     }, 1);
   }, [isSupported, survey, currentQuestion, startListening, resetTranscript]);
 
-  // Sync transcript to editable text
+  // When question changes, load saved answer and reset flags
   useEffect(() => {
-    setEditableText(transcript);
-  }, [transcript]);
-
-  // Reset manual stop flag and editable text when question changes
-  useEffect(() => {
+    if (!currentQuestion) return;
+    
     userStoppedManuallyRef.current = false;
     autoStartedRef.current = null;
-    setEditableText('');
-  }, [currentQuestion?.id]);
+    
+    // Hydrate editableText from saved answer (if navigating back to a previously answered question)
+    const savedAnswer = answers[currentQuestion.id];
+    if (savedAnswer?.textValue) {
+      setEditableText(savedAnswer.textValue);
+    } else {
+      setEditableText('');
+    }
+  }, [currentQuestion?.id, answers]);
+
+  // Sync transcript to editable text, but ONLY if transcript belongs to current question
+  // Tagged transcript prevents late STT from previous question corrupting new question
+  useEffect(() => {
+    if (currentQuestion && 
+        taggedTranscript?.questionId === currentQuestion.id && 
+        taggedTranscript.text) {
+      setEditableText(taggedTranscript.text);
+    }
+  }, [taggedTranscript, currentQuestion]);
 
   // Fallback: Auto-start recording for questions without TTS or when TTS fails (but not during intro)
   useEffect(() => {
@@ -136,35 +182,62 @@ export default function ResponderPage() {
     }
   }, [currentQuestion?.id, isMuted, isListening, isPlaying, survey, handleAutoStartListening, showingIntro]);
 
-  // Navigation handlers (defined before voice commands)
+  // Navigation handlers
   const handleNext = () => {
-    if (currentQuestion?.type === 'text' || currentQuestion?.type === 'both') {
-      if (!currentQuestion) return;
+    if (!currentQuestion) return;
+    
+    // Save current answer to conversation history
+    const currentAnswer = {
+      scoreValue: answers[currentQuestion.id]?.scoreValue,
+      textValue: (currentQuestion.type === 'text' || currentQuestion.type === 'both') ? editableText : undefined
+    };
+
+    setConversationHistory(prev => [
+      ...prev,
+      {
+        questionId: currentQuestion.id,
+        questionText: currentQuestion.text,
+        questionType: currentQuestion.type as 'score_5' | 'score_10' | 'text' | 'both',
+        answer: currentAnswer
+      }
+    ]);
+
+    // Save answer to state
+    if (currentQuestion.type === 'text' || currentQuestion.type === 'both') {
       setAnswers(prev => ({
         ...prev,
-        [currentQuestion.id]: { textValue: editableText }
+        [currentQuestion.id]: { 
+          ...prev[currentQuestion.id],
+          textValue: editableText 
+        }
       }));
     }
+
     stopListening();
     resetTranscript();
     setCurrentQuestionIndex(prev => Math.min(prev + 1, (survey?.questions.length || 1) - 1));
   };
 
   const handlePrevious = () => {
+    if (currentQuestionIndex === 0) return;
+    
+    // Remove last message from history
+    setConversationHistory(prev => prev.slice(0, -1));
+    
     stopListening();
     resetTranscript();
     setCurrentQuestionIndex(prev => Math.max(prev - 1, 0));
   };
 
-  // Voice commands
+  // Voice commands (only process if transcript belongs to current question)
   useVoiceCommands(
-    transcript,
+    taggedTranscript?.questionId === currentQuestion?.id ? taggedTranscript.text : '',
     [
       {
         keywords: VOICE_COMMANDS.next[isRTL ? 'ar' : 'en'],
         action: () => {
+          if (!hasAnswer) return;
           if (isLastQuestion) {
-            // Auto-submit on last question
             handleSubmit();
           } else {
             handleNext();
@@ -178,7 +251,7 @@ export default function ResponderPage() {
       {
         keywords: VOICE_COMMANDS.submit[isRTL ? 'ar' : 'en'],
         action: () => {
-          if (isLastQuestion) {
+          if (isLastQuestion && hasAnswer) {
             handleSubmit();
           }
         },
@@ -195,53 +268,42 @@ export default function ResponderPage() {
     isRTL ? 'ar' : 'en'
   );
 
-  // Auto-play intro TTS when intro screen is shown
+  // Auto-detect score from voice (only if transcript belongs to current question)
   useEffect(() => {
-    if (showingIntro && survey?.introVoiceUrl && !isMuted && survey?.settings.voiceEnabled) {
-      playTTS(survey.introVoiceUrl);
-    }
-  }, [showingIntro, survey?.introVoiceUrl, isMuted]);
-
-  // Auto-detect score from voice
-  useEffect(() => {
-    if (currentQuestion && (currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10')) {
+    if (currentQuestion && 
+        taggedTranscript?.questionId === currentQuestion.id &&
+        (currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10')) {
       const maxScore = currentQuestion.type === 'score_5' ? 5 : 10;
-      const detectedNumber = extractNumberFromTranscript(transcript, maxScore);
+      const detectedNumber = extractNumberFromTranscript(taggedTranscript.text, maxScore);
       
       if (detectedNumber !== null) {
         handleScoreSelect(detectedNumber);
-        if (survey?.settings.autoAdvance) {
-          setTimeout(() => {
-            if (isLastQuestion) {
-              // Auto-submit on last question
-              handleSubmit();
-            } else {
-              handleNext();
-            }
-          }, 500);
-        }
       }
     }
-  }, [transcript, currentQuestion]);
+  }, [taggedTranscript, currentQuestion]);
 
   const handleScoreSelect = (score: number) => {
     if (!currentQuestion) return;
     setAnswers(prev => ({
       ...prev,
-      [currentQuestion.id]: { scoreValue: score }
+      [currentQuestion.id]: { 
+        ...prev[currentQuestion.id],
+        scoreValue: score 
+      }
     }));
     stopListening();
     resetTranscript();
-  };
 
-  const handleTextSave = () => {
-    if (!currentQuestion) return;
-    setAnswers(prev => ({
-      ...prev,
-      [currentQuestion.id]: { textValue: editableText }
-    }));
-    stopListening();
-    resetTranscript();
+    // Auto-advance if enabled
+    if (survey?.settings.autoAdvance) {
+      setTimeout(() => {
+        if (isLastQuestion) {
+          handleSubmit();
+        } else {
+          handleNext();
+        }
+      }, 500);
+    }
   };
 
   const handleSubmit = async () => {
@@ -261,7 +323,7 @@ export default function ResponderPage() {
     }
 
     const answersList: InsertAnswer[] = survey.questions.map(q => ({
-      responseId: '', // Will be set by backend
+      responseId: '',
       questionId: q.id,
       scoreValue: finalAnswers[q.id]?.scoreValue || null,
       textValue: finalAnswers[q.id]?.textValue || null,
@@ -273,12 +335,24 @@ export default function ResponderPage() {
     });
   };
 
+  const toggleMic = () => {
+    if (isListening) {
+      stopListening();
+      userStoppedManuallyRef.current = true;
+    } else {
+      if (currentQuestion) {
+        startListening(currentQuestion.id); // Pass question ID to startListening
+      }
+      userStoppedManuallyRef.current = false;
+    }
+  };
+
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center" data-testid="loading-responder">
-          <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-muted-foreground">{isRTL ? 'جاري التحميل...' : 'Loading...'}</p>
+          <div className="w-16 h-16 border-4 border-green-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-600">{isRTL ? 'جاري التحميل...' : 'Loading...'}</p>
         </div>
       </div>
     );
@@ -286,10 +360,10 @@ export default function ResponderPage() {
 
   if (!survey) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center max-w-md" data-testid="error-not-found">
           <h1 className="text-3xl font-bold mb-4">{isRTL ? 'الاستبيان غير موجود' : 'Survey Not Found'}</h1>
-          <p className="text-muted-foreground">{isRTL ? 'عذراً، لم نتمكن من العثور على هذا الاستبيان' : 'Sorry, we could not find this survey'}</p>
+          <p className="text-gray-600">{isRTL ? 'عذراً، لم نتمكن من العثور على هذا الاستبيان' : 'Sorry, we could not find this survey'}</p>
         </div>
       </div>
     );
@@ -298,37 +372,33 @@ export default function ResponderPage() {
   if (isCompleted) {
     return (
       <div 
-        className="min-h-screen flex items-center justify-center bg-background p-4"
+        className="min-h-screen flex items-center justify-center bg-gray-50 p-4"
         dir={isRTL ? 'rtl' : 'ltr'}
         data-testid="page-thank-you"
       >
         <div className="w-full max-w-2xl">
-          <div className="bg-card border border-card-border rounded-2xl shadow-xl p-8 md:p-12 text-center">
-            {/* Logo */}
+          <div className="bg-white rounded-2xl shadow-xl p-8 md:p-12 text-center">
             {survey.logoUrl && (
               <div className="flex justify-center mb-6">
                 <img src={survey.logoUrl} alt="Logo" className="h-16 object-contain" data-testid="survey-logo-complete" />
               </div>
             )}
 
-            {/* Success Icon */}
             <div className="flex justify-center mb-6">
-              <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
-                <Send className="w-10 h-10 text-primary" />
+              <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center">
+                <CheckCheck className="w-10 h-10 text-green-500" />
               </div>
             </div>
 
-            {/* Thank You Message */}
-            <h1 className="text-3xl md:text-4xl font-bold mb-4 text-card-foreground" data-testid="thank-you-title">
+            <h1 className="text-3xl md:text-4xl font-bold mb-4 text-gray-900" data-testid="thank-you-title">
               {isRTL ? 'شكراً لك!' : 'Thank You!'}
             </h1>
-            <p className="text-lg text-muted-foreground mb-8" data-testid="thank-you-message">
+            <p className="text-lg text-gray-600 mb-8" data-testid="thank-you-message">
               {isRTL 
                 ? 'تم تسجيل ردك بنجاح. نقدر وقتك ومساهمتك.'
                 : 'Your response has been recorded successfully. We appreciate your time and contribution.'}
             </p>
 
-            {/* Close Button */}
             <Button
               variant="outline"
               onClick={() => window.close()}
@@ -345,50 +415,54 @@ export default function ResponderPage() {
   if (showingIntro) {
     return (
       <div 
-        className="min-h-screen flex items-center justify-center bg-background p-4"
+        className="min-h-screen flex items-center justify-center bg-gray-50 p-4"
         dir={isRTL ? 'rtl' : 'ltr'}
         data-testid="page-intro"
       >
         <div className="w-full max-w-2xl">
-          <div className="bg-card border border-card-border rounded-2xl shadow-xl p-8 md:p-12">
-            {/* Logo */}
+          <div className="bg-white rounded-2xl shadow-xl p-8 md:p-12">
             {survey.logoUrl && (
               <div className="flex justify-center mb-6">
                 <img src={survey.logoUrl} alt="Logo" className="h-16 object-contain" data-testid="intro-logo" />
               </div>
             )}
 
-            {/* Title */}
-            <h1 className="text-2xl md:text-3xl font-bold mb-4 text-card-foreground text-center" data-testid="intro-title">
+            <h1 className="text-2xl md:text-3xl font-bold mb-4 text-gray-900 text-center" data-testid="intro-title">
               {survey.title}
             </h1>
 
-            {/* Intro Text */}
-            <p className="text-lg text-muted-foreground mb-8 text-center whitespace-pre-wrap" data-testid="intro-text">
+            <p className="text-lg text-gray-600 mb-8 text-center whitespace-pre-wrap" data-testid="intro-text">
               {survey.introText}
             </p>
 
-            {/* Audio Playing Indicator */}
             {isPlaying && (
               <div className="flex justify-center mb-4">
-                <Badge variant="default" className="animate-pulse-slow">
+                <Badge className="bg-green-100 text-green-700 animate-pulse">
                   <Volume2 className="w-3 h-3 mr-1" />
                   {isRTL ? 'يُشغّل الصوت...' : 'Playing Audio...'}
                 </Badge>
               </div>
             )}
 
-            {/* Start Button */}
-            <div className="flex justify-center">
+            <div className="flex justify-center gap-3">
               <Button
-                variant="default"
-                size="lg"
                 onClick={() => setShowingIntro(false)}
-                className="px-8 py-4 text-lg font-semibold"
+                className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-xl"
                 data-testid="button-start"
               >
-                {isRTL ? 'ابدأ الاستبيان' : 'Start Survey'}
+                {isRTL ? 'ابدأ الآن' : 'Start Now'}
               </Button>
+
+              {survey.settings.voiceEnabled && (
+                <Button
+                  variant="outline"
+                  onClick={() => setIsMuted(!isMuted)}
+                  className="px-4"
+                  data-testid="button-toggle-sound"
+                >
+                  {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                </Button>
+              )}
             </div>
           </div>
         </div>
@@ -396,259 +470,197 @@ export default function ResponderPage() {
     );
   }
 
+  // Main chat interface
   return (
     <div 
-      className="min-h-screen flex items-center justify-center bg-background p-4"
+      className="min-h-screen bg-gray-50 flex flex-col"
       dir={isRTL ? 'rtl' : 'ltr'}
-      data-testid="page-responder"
+      data-testid="page-chat"
     >
-      <div className="w-full max-w-2xl">
-        {/* Progress Bar */}
-        {survey.settings.showProgressBar && (
-          <div className="mb-6" data-testid="progress-bar">
-            <Progress value={progress} className="h-1" />
-            <p className="text-xs text-muted-foreground mt-2 text-center">
-              {isRTL ? `السؤال ${currentQuestionIndex + 1} من ${survey.questions.length}` : `Question ${currentQuestionIndex + 1} of ${survey.questions.length}`}
-            </p>
-          </div>
-        )}
-
-        {/* Question Card */}
-        <div className="bg-card border border-card-border rounded-2xl shadow-xl p-8 md:p-12 animate-slide-in" data-testid={`question-card-${currentQuestionIndex}`}>
-          {/* Logo */}
+      {/* Header with logo and mute */}
+      <div className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-10">
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           {survey.logoUrl && (
-            <div className="flex justify-center mb-6">
-              <img src={survey.logoUrl} alt="Logo" className="h-12 object-contain" data-testid="survey-logo" />
-            </div>
+            <img src={survey.logoUrl} alt="Logo" className="h-8 md:h-10 object-contain" data-testid="chat-logo" />
           )}
-
-          {/* Question Text */}
-          <h2 className="text-xl md:text-2xl font-semibold text-card-foreground mb-8 text-center" data-testid="question-text">
-            {currentQuestion?.text}
-          </h2>
-
-          {/* Voice Status Indicators */}
-          <div className="flex justify-center gap-2 mb-6 flex-wrap">
-            {isListening && (
-              <Badge variant="default" className="animate-pulse-slow" data-testid="badge-recording">
-                <Mic className="w-3 h-3 mr-1" />
-                {isRTL ? 'يسجل الآن...' : 'Recording now...'}
-                {confidence > 0 && (
-                  <span className="ml-2 text-xs opacity-80">
-                    {Math.round(confidence * 100)}%
-                  </span>
-                )}
-              </Badge>
-            )}
-            {speechError && (
-              <Badge variant="destructive" data-testid="badge-error">
-                {isRTL ? 'لم أسمع جيداً' : "Didn't hear well"}
-              </Badge>
-            )}
-            {isPlaying && (
-              <Badge variant="secondary" data-testid="badge-playing">
-                <Volume2 className="w-3 h-3 mr-1" />
-                {isRTL ? 'يشغل الصوت...' : 'Playing...'}
-              </Badge>
-            )}
-          </div>
-
-          {/* Answer Input */}
-          <div className="mb-8">
-            {currentQuestion?.type === 'score_5' && (
-              <div className="flex justify-center gap-3 md:gap-4 flex-wrap" data-testid="score-buttons-5">
-                {[1, 2, 3, 4, 5].map(score => (
-                  <button
-                    key={score}
-                    onClick={() => {
-                      handleScoreSelect(score);
-                      if (survey.settings.autoAdvance) {
-                        setTimeout(() => {
-                          if (isLastQuestion) {
-                            handleSubmit();
-                          } else {
-                            handleNext();
-                          }
-                        }, 300);
-                      }
-                    }}
-                    className={`w-14 h-14 md:w-18 md:h-18 rounded-full text-2xl md:text-3xl font-bold transition-all
-                      ${answers[currentQuestion.id]?.scoreValue === score
-                        ? 'bg-primary text-primary-foreground scale-110 shadow-lg'
-                        : 'bg-muted text-muted-foreground hover-elevate'
-                      }`}
-                    data-testid={`button-score-${score}`}
-                  >
-                    {score}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {currentQuestion?.type === 'score_10' && (
-              <div className="flex justify-center gap-2 md:gap-3 flex-wrap" data-testid="score-buttons-10">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(score => (
-                  <button
-                    key={score}
-                    onClick={() => {
-                      handleScoreSelect(score);
-                      if (survey.settings.autoAdvance) {
-                        setTimeout(() => {
-                          if (isLastQuestion) {
-                            handleSubmit();
-                          } else {
-                            handleNext();
-                          }
-                        }, 300);
-                      }
-                    }}
-                    className={`w-12 h-12 md:w-14 md:h-14 rounded-full text-lg md:text-xl font-bold transition-all
-                      ${answers[currentQuestion.id]?.scoreValue === score
-                        ? 'bg-primary text-primary-foreground scale-110 shadow-lg'
-                        : 'bg-muted text-muted-foreground hover-elevate'
-                      }`}
-                    data-testid={`button-score-${score}`}
-                  >
-                    {score}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {(currentQuestion?.type === 'text' || currentQuestion?.type === 'both') && (
-              <div className="space-y-2">
-                <Textarea
-                  value={editableText}
-                  onChange={(e) => setEditableText(e.target.value)}
-                  placeholder={isRTL ? 'قل إجابتك أو اكتبها هنا...' : 'Speak your answer or type here...'}
-                  className="min-h-32 md:min-h-40 text-base resize-none"
-                  data-testid="textarea-answer"
-                />
-                {partialTranscript && (
-                  <p className="text-sm text-muted-foreground italic px-2" data-testid="partial-transcript">
-                    {isRTL ? 'يكتب: ' : 'Typing: '}
-                    <span className="text-primary">{partialTranscript}</span>
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* Audio Controls */}
-          <div className="flex justify-center gap-2 mb-6">
-            {survey.settings.allowReplay && currentQuestion?.voiceUrl && (
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => playTTS(currentQuestion.voiceUrl!)}
-                data-testid="button-replay"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </Button>
-            )}
-            
+          <div className="flex items-center gap-2">
             {survey.settings.voiceEnabled && (
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setIsMuted(!isMuted)}
-                data-testid="button-mute-toggle"
+                data-testid="button-mute"
               >
-                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-              </Button>
-            )}
-
-            {/* Conditional Recording Controls */}
-            {survey.settings.voiceEnabled && !isListening && !isPlaying && autoStartedRef.current !== currentQuestion?.id && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => {
-                  resetTranscript();
-                  startListening();
-                  userStoppedManuallyRef.current = false;
-                  if (currentQuestion) {
-                    autoStartedRef.current = currentQuestion.id;
-                  }
-                }}
-                data-testid="button-start-recording"
-              >
-                <Mic className="w-4 h-4 mr-2" />
-                {isRTL ? 'ابدأ التسجيل' : 'Start Recording'}
-              </Button>
-            )}
-
-            {survey.settings.voiceEnabled && isListening && (
-              <Button
-                variant="destructive"
-                size="icon"
-                onClick={() => {
-                  stopListening();
-                  userStoppedManuallyRef.current = true;
-                  if (currentQuestion) {
-                    autoStartedRef.current = null;
-                  }
-                }}
-                data-testid="button-stop-recording"
-              >
-                <MicOff className="w-4 h-4" />
-              </Button>
-            )}
-          </div>
-
-          {/* Navigation Buttons */}
-          <div className="flex justify-between gap-4">
-            <Button
-              variant="outline"
-              onClick={handlePrevious}
-              disabled={currentQuestionIndex === 0}
-              className="px-8 py-4 text-lg font-semibold"
-              data-testid="button-previous"
-            >
-              <ChevronLeft className="w-5 h-5 mr-2" />
-              {isRTL ? 'السابق' : 'Previous'}
-            </Button>
-
-            {!isLastQuestion ? (
-              <Button
-                variant="default"
-                onClick={handleNext}
-                className="px-8 py-4 text-lg font-semibold"
-                data-testid="button-next"
-              >
-                {isRTL ? 'التالي' : 'Next'}
-                <ChevronRight className="w-5 h-5 ml-2" />
-              </Button>
-            ) : (
-              <Button
-                variant="default"
-                onClick={handleSubmit}
-                disabled={submitResponseMutation.isPending}
-                className="px-8 py-4 text-lg font-semibold"
-                data-testid="button-submit"
-              >
-                {submitResponseMutation.isPending ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin mr-2"></div>
-                    {isRTL ? 'جاري الإرسال...' : 'Submitting...'}
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-5 h-5 mr-2" />
-                    {isRTL ? 'إرسال' : 'Submit'}
-                  </>
-                )}
+                {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
               </Button>
             )}
           </div>
         </div>
+      </div>
 
-        {/* Live Transcript Display (for debugging) */}
-        {transcript && (
-          <div className="mt-4 text-xs text-muted-foreground text-center" data-testid="transcript-display">
-            {isRTL ? 'تسجيل صوتي:' : 'Transcript:'} {transcript}
-          </div>
-        )}
+      {/* Chat messages area */}
+      <div className="flex-1 overflow-y-auto px-4 py-6">
+        <div className="max-w-2xl mx-auto space-y-4">
+          {/* Conversation history */}
+          {conversationHistory.map((msg, idx) => (
+            <div key={idx} className="space-y-2">
+              {/* Question bubble */}
+              <div className={`flex ${isRTL ? 'justify-end' : 'justify-start'}`}>
+                <div 
+                  className="max-w-[85%] md:max-w-[75%] bg-[#D4F4DD] rounded-2xl px-4 py-3 md:px-5 md:py-4 shadow-sm"
+                  data-testid={`history-question-${idx}`}
+                >
+                  <p className="text-gray-900 font-medium text-base md:text-lg leading-relaxed">
+                    {msg.questionText}
+                  </p>
+                </div>
+              </div>
+
+              {/* Answer bubble/badge */}
+              <div className={`flex ${isRTL ? 'justify-start' : 'justify-end'}`}>
+                {msg.answer?.scoreValue && (
+                  <div className="bg-green-100 text-green-700 px-3 py-1.5 rounded-full font-semibold text-sm" data-testid={`history-answer-${idx}`}>
+                    {msg.answer.scoreValue}
+                  </div>
+                )}
+                {msg.answer?.textValue && (
+                  <div className="max-w-[85%] bg-gray-200 text-gray-900 rounded-2xl px-4 py-3 shadow-sm" data-testid={`history-answer-text-${idx}`}>
+                    <p className="text-base">{msg.answer.textValue}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
+
+          {/* Current active question */}
+          {currentQuestion && (
+            <div className="space-y-4">
+              {/* Current question bubble */}
+              <div className={`flex ${isRTL ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+                <div 
+                  className="max-w-[85%] md:max-w-[75%] bg-[#D4F4DD] rounded-2xl px-4 py-3 md:px-5 md:py-4 shadow-sm"
+                  data-testid="active-question"
+                >
+                  <p className="text-gray-900 font-medium text-base md:text-lg leading-relaxed">
+                    {currentQuestion.text}
+                  </p>
+                  
+                  {/* Playing/Recording indicators */}
+                  {isPlaying && (
+                    <Badge className="bg-green-600 text-white mt-2 text-xs">
+                      <Volume2 className="w-3 h-3 mr-1" />
+                      {isRTL ? 'يُشغّل...' : 'Playing...'}
+                    </Badge>
+                  )}
+                </div>
+              </div>
+
+              {/* Answer input area */}
+              <div className="bg-white rounded-2xl shadow-md p-4 space-y-3">
+                {/* Score capsules */}
+                {(currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10') && (
+                  <div className="flex flex-wrap gap-2 md:gap-3 justify-center">
+                    {Array.from({ length: currentQuestion.type === 'score_5' ? 5 : 10 }, (_, i) => i + 1).map((score) => (
+                      <button
+                        key={score}
+                        onClick={() => handleScoreSelect(score)}
+                        className={`
+                          min-w-[60px] h-[60px] md:min-w-[72px] md:h-[72px] rounded-full
+                          transition-all active:scale-95
+                          ${answers[currentQuestion.id]?.scoreValue === score
+                            ? 'bg-green-500 text-white border-2 border-green-500'
+                            : 'bg-white text-gray-700 border-2 border-gray-300 hover:border-green-400 hover:shadow-md'
+                          }
+                          text-2xl md:text-3xl font-bold
+                        `}
+                        data-testid={`score-${score}`}
+                      >
+                        {score}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {/* Text input */}
+                {(currentQuestion.type === 'text' || currentQuestion.type === 'both') && (
+                  <div className="relative">
+                    <Textarea
+                      value={editableText}
+                      onChange={(e) => setEditableText(e.target.value)}
+                      placeholder={isRTL ? 'اكتب إجابتك أو تحدث...' : 'Type your answer or speak...'}
+                      className="min-h-[80px] resize-none text-base border-2 border-gray-300 focus:border-green-500 rounded-xl pr-12"
+                      data-testid="input-text"
+                    />
+                    
+                    {/* Microphone button */}
+                    {survey.settings.voiceEnabled && (
+                      <button
+                        onClick={toggleMic}
+                        className={`
+                          absolute top-3 ${isRTL ? 'left-3' : 'right-3'}
+                          w-10 h-10 rounded-full flex items-center justify-center
+                          transition-all
+                          ${isListening 
+                            ? 'bg-red-500 text-white animate-pulse' 
+                            : 'bg-green-500 text-white hover:bg-green-600'
+                          }
+                        `}
+                        data-testid="button-mic"
+                      >
+                        {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                      </button>
+                    )}
+
+                    {/* Recording indicator */}
+                    {isListening && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <Badge className="bg-red-500 text-white text-xs animate-pulse">
+                          <div className="w-2 h-2 rounded-full bg-white mr-1 animate-pulse"></div>
+                          {isRTL ? 'يسجل الآن...' : 'Recording...'}
+                        </Badge>
+                        {taggedPartialTranscript?.questionId === currentQuestion?.id && taggedPartialTranscript.text && (
+                          <span className="text-xs text-gray-500 italic">{taggedPartialTranscript.text}</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div ref={chatEndRef} />
+        </div>
+      </div>
+
+      {/* Bottom navigation bar */}
+      <div className="bg-white border-t border-gray-200 shadow-lg sticky bottom-0">
+        <div className="max-w-2xl mx-auto p-3 md:p-4">
+          <Button
+            onClick={() => {
+              if (isLastQuestion) {
+                handleSubmit();
+              } else {
+                handleNext();
+              }
+            }}
+            disabled={!hasAnswer || submitResponseMutation.isPending}
+            className="w-full bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-xl text-base font-semibold flex items-center justify-center gap-2"
+            data-testid="button-next"
+          >
+            {submitResponseMutation.isPending ? (
+              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              <>
+                {isLastQuestion 
+                  ? (isRTL ? 'إرسال' : 'Submit')
+                  : (isRTL ? 'التالي' : 'Next')
+                }
+                {isLastQuestion ? <Send className="w-5 h-5" /> : <ArrowRight className="w-5 h-5" />}
+              </>
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   );

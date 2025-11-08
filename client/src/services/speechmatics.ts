@@ -3,11 +3,19 @@
 
 import { RealtimeClient } from '@speechmatics/real-time-client';
 
+export interface TranscriptPayload {
+  questionId: string;
+  text: string;
+  confidence: number;
+  isFinal: boolean;
+}
+
 export interface SpeechmaticsConfig {
+  questionId: string;
   language: 'ar' | 'en';
   jwt: string;
-  onPartialTranscript?: (text: string, confidence: number) => void;
-  onFinalTranscript?: (text: string, confidence: number) => void;
+  onPartialTranscript?: (payload: TranscriptPayload) => void;
+  onFinalTranscript?: (payload: TranscriptPayload) => void;
   onError?: (error: string) => void;
   onSessionStarted?: () => void;
   onSessionEnded?: () => void;
@@ -90,7 +98,12 @@ export class SpeechmaticsService {
             const confidence = message.results?.[0]?.alternatives?.[0]?.confidence || 0.85;
             
             if (transcript.trim()) {
-              this.config.onPartialTranscript?.(transcript, confidence);
+              this.config.onPartialTranscript?.({
+                questionId: this.config.questionId,
+                text: transcript,
+                confidence,
+                isFinal: false,
+              });
             }
           }
           break;
@@ -103,7 +116,12 @@ export class SpeechmaticsService {
             if (transcript.trim()) {
               // Append to final transcript
               this.finalTranscript += (this.finalTranscript ? ' ' : '') + transcript;
-              this.config.onFinalTranscript?.(this.finalTranscript, confidence);
+              this.config.onFinalTranscript?.({
+                questionId: this.config.questionId,
+                text: this.finalTranscript,
+                confidence,
+                isFinal: true,
+              });
             }
           }
           break;
