@@ -3,9 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { ArrowLeft, Download, Users, Clock, TrendingUp } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import type { SurveyWithQuestions, ResponseWithAnswers } from '@shared/schema';
+import { format } from 'date-fns';
 
 export default function AnalyticsPage() {
   const [, params] = useRoute('/survey/:id/analytics');
@@ -26,7 +28,7 @@ export default function AnalyticsPage() {
 
   // Calculate analytics
   const totalResponses = responses?.length || 0;
-  const avgDuration = responses?.reduce((sum, r) => sum + (r.duration || 0), 0) / Math.max(totalResponses, 1);
+  const avgDuration = (responses?.reduce((sum, r) => sum + (r.duration || 0), 0) || 0) / Math.max(totalResponses, 1);
 
   // Question analytics
   const questionStats = survey?.questions.map(question => {
@@ -191,6 +193,72 @@ export default function AnalyticsPage() {
             </Card>
           ))}
         </div>
+
+        {/* Responses Table */}
+        {totalResponses > 0 && (
+          <Card className="mt-8" data-testid="card-responses-table">
+            <CardHeader>
+              <CardTitle>{isRTL ? 'جدول الردود' : 'Responses Table'}</CardTitle>
+              <CardDescription>
+                {isRTL ? 'عرض تفصيلي لجميع الردود' : 'Detailed view of all responses'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table data-testid="table-responses">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="font-bold" data-testid="table-header-id">
+                        {isRTL ? 'رقم المشارك' : 'ID'}
+                      </TableHead>
+                      {survey.questions.map((question, index) => (
+                        <TableHead key={question.id} className="min-w-[150px]" data-testid={`table-header-q${index + 1}`}>
+                          {isRTL ? `س${index + 1}` : `Q${index + 1}`}
+                        </TableHead>
+                      ))}
+                      <TableHead className="min-w-[120px]" data-testid="table-header-date">
+                        {isRTL ? 'التاريخ' : 'Date'}
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {responses?.map((response, responseIndex) => {
+                      const answersMap = new Map(response.answers.map(a => [a.questionId, a]));
+                      
+                      return (
+                        <TableRow key={response.id} data-testid={`table-row-${responseIndex + 1}`}>
+                          <TableCell className="font-medium" data-testid={`table-cell-id-${responseIndex + 1}`}>
+                            {responseIndex + 1}
+                          </TableCell>
+                          {survey.questions.map((question) => {
+                            const answer = answersMap.get(question.id);
+                            const displayValue = answer?.scoreValue !== null && answer?.scoreValue !== undefined
+                              ? answer.scoreValue
+                              : answer?.textValue || '-';
+                            
+                            return (
+                              <TableCell 
+                                key={question.id} 
+                                className="max-w-[200px] truncate"
+                                data-testid={`table-cell-response-${responseIndex + 1}-q${survey.questions.indexOf(question) + 1}`}
+                                title={String(displayValue)}
+                              >
+                                {displayValue}
+                              </TableCell>
+                            );
+                          })}
+                          <TableCell className="text-sm text-muted-foreground" data-testid={`table-cell-date-${responseIndex + 1}`}>
+                            {response.completedAt ? format(new Date(response.completedAt), 'yyyy-MM-dd HH:mm') : '-'}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {totalResponses === 0 && (
           <Card data-testid="empty-state-analytics">
