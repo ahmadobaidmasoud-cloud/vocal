@@ -9,6 +9,7 @@ export const surveys = pgTable("surveys", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   title: text("title").notNull(),
   description: text("description"),
+  introText: text("intro_text"), // Introduction text shown before first question
   logoUrl: text("logo_url"),
   primaryColor: varchar("primary_color", { length: 7 }).default("#22C55E"),
   isActive: boolean("is_active").default(true).notNull(),

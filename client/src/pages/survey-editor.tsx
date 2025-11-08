@@ -32,6 +32,7 @@ export default function SurveyEditorPage() {
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [introText, setIntroText] = useState('');
   const [language, setLanguage] = useState<'ar' | 'en'>('ar');
   const [primaryColor, setPrimaryColor] = useState('#22C55E');
   const [logoUrl, setLogoUrl] = useState('');
@@ -52,6 +53,7 @@ export default function SurveyEditorPage() {
     if (survey) {
       setTitle(survey.title);
       setDescription(survey.description || '');
+      setIntroText(survey.introText || '');
       setLanguage(survey.language as 'ar' | 'en');
       setPrimaryColor(survey.primaryColor || '#22C55E');
       setLogoUrl(survey.logoUrl || '');
@@ -59,7 +61,8 @@ export default function SurveyEditorPage() {
       setQuestions(survey.questions.map(q => ({
         ...q,
         surveyId: survey.id,
-      })));
+        voiceUrl: q.voiceUrl || undefined,
+      })) as (InsertQuestion & { id?: string; voiceUrl?: string })[]);
     }
   }, [survey]);
 
@@ -80,6 +83,7 @@ export default function SurveyEditorPage() {
     updateSurveyMutation.mutate({
       title,
       description,
+      introText,
       language,
       primaryColor,
       logoUrl,
@@ -97,6 +101,7 @@ export default function SurveyEditorPage() {
         text: language === 'ar' ? 'سؤال جديد' : 'New Question',
         type: 'score_5',
         required: true,
+        voiceUrl: undefined,
       },
     ]);
   };
@@ -280,6 +285,17 @@ export default function SurveyEditorPage() {
                     onChange={(e) => setDescription(e.target.value)}
                     className="mt-1"
                     data-testid="textarea-description"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="introText">{isRTL ? 'نص المقدمة (قبل الأسئلة)' : 'Introduction Text (Before Questions)'}</Label>
+                  <Textarea
+                    id="introText"
+                    value={introText}
+                    onChange={(e) => setIntroText(e.target.value)}
+                    placeholder={isRTL ? 'أدخل نص ترحيبي يظهر قبل بداية الاستبيان...' : 'Enter welcome text shown before survey starts...'}
+                    className="mt-1"
+                    data-testid="textarea-intro"
                   />
                 </div>
                 <div>

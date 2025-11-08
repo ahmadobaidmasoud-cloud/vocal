@@ -24,6 +24,7 @@ export default function ResponderPage() {
   const [, params] = useRoute('/survey/:id');
   const surveyId = params?.id;
 
+  const [showingIntro, setShowingIntro] = useState(true);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState<Record<string, { scoreValue?: number; textValue?: string }>>({});
   const [isMuted, setIsMuted] = useState(false);
@@ -66,12 +67,19 @@ export default function ResponderPage() {
   const progress = survey ? ((currentQuestionIndex + 1) / survey.questions.length) * 100 : 0;
   const isRTL = survey?.language === 'ar';
 
-  // Auto-play TTS when question changes
+  // Check if we should show intro
   useEffect(() => {
-    if (currentQuestion?.voiceUrl && !isMuted && survey?.settings.voiceEnabled) {
+    if (survey) {
+      setShowingIntro(!!survey.introText && survey.introText.trim().length > 0);
+    }
+  }, [survey]);
+
+  // Auto-play TTS when question changes (but not during intro)
+  useEffect(() => {
+    if (!showingIntro && currentQuestion?.voiceUrl && !isMuted && survey?.settings.voiceEnabled) {
       playTTS(currentQuestion.voiceUrl);
     }
-  }, [currentQuestion?.id, isMuted]);
+  }, [currentQuestion?.id, isMuted, showingIntro]);
 
   const playTTS = useCallback((url: string) => {
     if (audioElement) {
@@ -112,9 +120,9 @@ export default function ResponderPage() {
     setEditableText('');
   }, [currentQuestion?.id]);
 
-  // Fallback: Auto-start recording for questions without TTS or when TTS fails
+  // Fallback: Auto-start recording for questions without TTS or when TTS fails (but not during intro)
   useEffect(() => {
-    if (!currentQuestion || !survey?.settings.voiceEnabled) return;
+    if (showingIntro || !currentQuestion || !survey?.settings.voiceEnabled) return;
     
     const shouldFallbackStart = !currentQuestion.voiceUrl || isMuted;
     const hasNotStartedYet = autoStartedRef.current !== currentQuestion.id;
@@ -126,7 +134,7 @@ export default function ResponderPage() {
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [currentQuestion?.id, isMuted, isListening, isPlaying, survey, handleAutoStartListening]);
+  }, [currentQuestion?.id, isMuted, isListening, isPlaying, survey, handleAutoStartListening, showingIntro]);
 
   // Navigation handlers (defined before voice commands)
   const handleNext = () => {
@@ -302,6 +310,50 @@ export default function ResponderPage() {
             >
               {isRTL ? 'إغلاق' : 'Close'}
             </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (showingIntro) {
+    return (
+      <div 
+        className="min-h-screen flex items-center justify-center bg-background p-4"
+        dir={isRTL ? 'rtl' : 'ltr'}
+        data-testid="page-intro"
+      >
+        <div className="w-full max-w-2xl">
+          <div className="bg-card border border-card-border rounded-2xl shadow-xl p-8 md:p-12">
+            {/* Logo */}
+            {survey.logoUrl && (
+              <div className="flex justify-center mb-6">
+                <img src={survey.logoUrl} alt="Logo" className="h-16 object-contain" data-testid="intro-logo" />
+              </div>
+            )}
+
+            {/* Title */}
+            <h1 className="text-2xl md:text-3xl font-bold mb-4 text-card-foreground text-center" data-testid="intro-title">
+              {survey.title}
+            </h1>
+
+            {/* Intro Text */}
+            <p className="text-lg text-muted-foreground mb-8 text-center whitespace-pre-wrap" data-testid="intro-text">
+              {survey.introText}
+            </p>
+
+            {/* Start Button */}
+            <div className="flex justify-center">
+              <Button
+                variant="default"
+                size="lg"
+                onClick={() => setShowingIntro(false)}
+                className="px-8 py-4 text-lg font-semibold"
+                data-testid="button-start"
+              >
+                {isRTL ? 'ابدأ الاستبيان' : 'Start Survey'}
+              </Button>
+            </div>
           </div>
         </div>
       </div>
