@@ -11,6 +11,7 @@ import {
   MicOff, 
   Send,
   ArrowRight,
+  ArrowLeft,
   Check,
   CheckCheck
 } from 'lucide-react';
@@ -45,6 +46,12 @@ export default function ResponderPage() {
   const autoStartedRef = useRef<string | null>(null);
   const userStoppedManuallyRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  
+  // Ref to track latest answers state (prevents stale state reads in rapid navigation)
+  const answersRef = useRef(answers);
+  useEffect(() => {
+    answersRef.current = answers;
+  }, [answers]);
 
   const { data: survey, isLoading } = useQuery<SurveyWithQuestions>({
     queryKey: ['/api/surveys', surveyId],
@@ -161,7 +168,7 @@ export default function ResponderPage() {
   useEffect(() => {
     if (currentQuestion && 
         taggedTranscript?.questionId === currentQuestion.id && 
-        taggedTranscript.text) {
+        taggedTranscript?.text) {
       setEditableText(taggedTranscript.text);
     }
   }, [taggedTranscript, currentQuestion]);
@@ -186,10 +193,26 @@ export default function ResponderPage() {
   const handleNext = () => {
     if (!currentQuestion) return;
     
+    // For text/both questions, update answersRef synchronously BEFORE reading it
+    if (currentQuestion.type === 'text' || currentQuestion.type === 'both') {
+      const newAnswers = {
+        ...answersRef.current,
+        [currentQuestion.id]: { 
+          ...answersRef.current[currentQuestion.id],
+          textValue: editableText 
+        }
+      };
+      answersRef.current = newAnswers; // ← Synchronous update
+      setAnswers(newAnswers);          // ← State update for re-render
+    }
+    
+    // Now read from answersRef (guaranteed to have latest values)
+    const latestAnswers = answersRef.current;
+    
     // Save current answer to conversation history
     const currentAnswer = {
-      scoreValue: answers[currentQuestion.id]?.scoreValue,
-      textValue: (currentQuestion.type === 'text' || currentQuestion.type === 'both') ? editableText : undefined
+      scoreValue: latestAnswers[currentQuestion.id]?.scoreValue,
+      textValue: latestAnswers[currentQuestion.id]?.textValue
     };
 
     setConversationHistory(prev => [
@@ -201,17 +224,6 @@ export default function ResponderPage() {
         answer: currentAnswer
       }
     ]);
-
-    // Save answer to state
-    if (currentQuestion.type === 'text' || currentQuestion.type === 'both') {
-      setAnswers(prev => ({
-        ...prev,
-        [currentQuestion.id]: { 
-          ...prev[currentQuestion.id],
-          textValue: editableText 
-        }
-      }));
-    }
 
     stopListening();
     resetTranscript();
@@ -231,7 +243,7 @@ export default function ResponderPage() {
 
   // Voice commands (only process if transcript belongs to current question)
   useVoiceCommands(
-    taggedTranscript?.questionId === currentQuestion?.id ? taggedTranscript.text : '',
+    taggedTranscript?.questionId === currentQuestion?.id ? (taggedTranscript?.text ?? '') : '',
     [
       {
         keywords: VOICE_COMMANDS.next[isRTL ? 'ar' : 'en'],
@@ -272,6 +284,7 @@ export default function ResponderPage() {
   useEffect(() => {
     if (currentQuestion && 
         taggedTranscript?.questionId === currentQuestion.id &&
+        taggedTranscript?.text &&
         (currentQuestion.type === 'score_5' || currentQuestion.type === 'score_10')) {
       const maxScore = currentQuestion.type === 'score_5' ? 5 : 10;
       const detectedNumber = extractNumberFromTranscript(taggedTranscript.text, maxScore);
@@ -284,13 +297,18 @@ export default function ResponderPage() {
 
   const handleScoreSelect = (score: number) => {
     if (!currentQuestion) return;
-    setAnswers(prev => ({
-      ...prev,
+    
+    // Update both ref AND state synchronously to prevent stale reads in rapid navigation
+    const newAnswers = {
+      ...answersRef.current,
       [currentQuestion.id]: { 
-        ...prev[currentQuestion.id],
+        ...answersRef.current[currentQuestion.id],
         scoreValue: score 
       }
-    }));
+    };
+    answersRef.current = newAnswers; // ← Synchronous update BEFORE any navigation
+    setAnswers(newAnswers);          // ← State update for re-render
+    
     stopListening();
     resetTranscript();
 
@@ -309,17 +327,20 @@ export default function ResponderPage() {
   const handleSubmit = async () => {
     if (!survey || !surveyId) return;
     
-    // Build final answers with current question's answer included
-    const finalAnswers = { ...answers };
+    // Use answersRef to get latest state (prevents stale state in rapid clicks/auto-advance)
+    const latestAnswers = answersRef.current;
+    const finalAnswers = { ...latestAnswers };
     
-    // Ensure current question's answer is included
+    // Ensure current question's answer is captured in the snapshot
     if (currentQuestion) {
+      const currentAnswer = finalAnswers[currentQuestion.id] || {};
+      
+      // Capture text for text/both questions (from editableText input)
       if (currentQuestion.type === 'text' || currentQuestion.type === 'both') {
-        finalAnswers[currentQuestion.id] = {
-          ...finalAnswers[currentQuestion.id],
-          textValue: editableText
-        };
+        currentAnswer.textValue = editableText || currentAnswer.textValue;
       }
+      
+      finalAnswers[currentQuestion.id] = currentAnswer;
     }
 
     const answersList: InsertAnswer[] = survey.questions.map(q => ({
@@ -618,7 +639,7 @@ export default function ResponderPage() {
                           <div className="w-2 h-2 rounded-full bg-white mr-1 animate-pulse"></div>
                           {isRTL ? 'يسجل الآن...' : 'Recording...'}
                         </Badge>
-                        {taggedPartialTranscript?.questionId === currentQuestion?.id && taggedPartialTranscript.text && (
+                        {taggedPartialTranscript?.questionId === currentQuestion?.id && taggedPartialTranscript?.text && (
                           <span className="text-xs text-gray-500 italic">{taggedPartialTranscript.text}</span>
                         )}
                       </div>
@@ -636,30 +657,46 @@ export default function ResponderPage() {
       {/* Bottom navigation bar */}
       <div className="bg-white border-t border-gray-200 shadow-lg sticky bottom-0">
         <div className="max-w-2xl mx-auto p-3 md:p-4">
-          <Button
-            onClick={() => {
-              if (isLastQuestion) {
-                handleSubmit();
-              } else {
-                handleNext();
-              }
-            }}
-            disabled={!hasAnswer || submitResponseMutation.isPending}
-            className="w-full bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-xl text-base font-semibold flex items-center justify-center gap-2"
-            data-testid="button-next"
-          >
-            {submitResponseMutation.isPending ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            ) : (
-              <>
-                {isLastQuestion 
-                  ? (isRTL ? 'إرسال' : 'Submit')
-                  : (isRTL ? 'التالي' : 'Next')
-                }
-                {isLastQuestion ? <Send className="w-5 h-5" /> : <ArrowRight className="w-5 h-5" />}
-              </>
+          <div className="flex gap-3">
+            {/* Previous button - only show if not on first question */}
+            {currentQuestionIndex > 0 && (
+              <Button
+                onClick={handlePrevious}
+                variant="outline"
+                className="flex-1 border-2 border-gray-300 hover:bg-gray-50 px-6 py-3 rounded-xl text-base font-semibold flex items-center justify-center gap-2"
+                data-testid="button-previous"
+              >
+                <ArrowLeft className="w-5 h-5" />
+                {isRTL ? 'السابق' : 'Previous'}
+              </Button>
             )}
-          </Button>
+            
+            {/* Next/Submit button */}
+            <Button
+              onClick={() => {
+                if (isLastQuestion) {
+                  handleSubmit();
+                } else {
+                  handleNext();
+                }
+              }}
+              disabled={!hasAnswer || submitResponseMutation.isPending}
+              className={`${currentQuestionIndex > 0 ? 'flex-1' : 'w-full'} bg-green-500 hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed text-white px-8 py-3 rounded-xl text-base font-semibold flex items-center justify-center gap-2`}
+              data-testid="button-next"
+            >
+              {submitResponseMutation.isPending ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              ) : (
+                <>
+                  {isLastQuestion 
+                    ? (isRTL ? 'إرسال' : 'Submit')
+                    : (isRTL ? 'التالي' : 'Next')
+                  }
+                  {isLastQuestion ? <Send className="w-5 h-5" /> : <ArrowRight className="w-5 h-5" />}
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
