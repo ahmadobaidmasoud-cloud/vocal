@@ -52,19 +52,19 @@ VocalSurvey هي منصة استبيانات عربية-عالمية متقدم�
   - إظهار شريط التقدم
 - نسخ رابط المشاركة
 
-#### 4. لوحة التحليلات (`/survey/:id/analytics`)
-- إحصائيات عامة: إجمالي الردود، متوسط الوقت، معدل الإكمال
-- تحليل كل سؤال:
-  - رسوم بيانية (Bar Charts) لتوزيع الدرجات
-  - عرض الإجابات النصية
-  - متوسط الدرجات
-- جدول الردود التفصيلي (Responses Table):
+#### 4. لوحة التحليلات (`/survey/:id/analytics`) - مُبسّطة
+- **جدول الردود فقط** (Responses Table):
   - ترقيم تلقائي للمشاركين (ID: 1, 2, 3...)
   - عرض إجابات جميع الأسئلة في أعمدة (Q1, Q2, Q3...)
   - معالجة ذكية لأسئلة "both": عرض `scoreValue – textValue`
   - عمود التاريخ بتنسيق yyyy-MM-dd HH:mm
   - دعم RTL/LTR كامل مع Shadcn Table component
-- تصدير البيانات
+- **تصدير إلى Excel**:
+  - مكتبة: `xlsx` (SheetJS)
+  - صيغة الملف: `.xlsx`
+  - اسم الملف: `{عنوان الاستبيان}_{الردود|responses}_{yyyy-MM-dd}.xlsx`
+  - محتوى الملف: نفس بنية الجدول (ID، س1، س2، التاريخ)
+  - الزر يُعطّل عند عدم وجود ردود
 
 ## نموذج البيانات (Database Schema)
 
@@ -160,9 +160,19 @@ npm run db:push  # مزامنة Database schema
 ✅ Task 1: Schema & Frontend Excellence - مكتمل
 ✅ Task 2: Backend Implementation - مكتمل
 ✅ Task 3: Integration & Testing - مكتمل
-🚀 **Task 4: Speechmatics Upgrade** - مكتمل! (النسخة 2.0)
+✅ Task 4: Speechmatics Upgrade - مكتمل (v2.0)
+🚀 **Task 5: Analytics Simplified + Excel Export** - مكتمل! (النسخة 2.1)
 
-## التحسينات المطبقة (v2.0 - Speechmatics Official SDK)
+## التحسينات المطبقة
+
+### v2.1 - Analytics Simplified + Excel Export
+1. ✅ **Clean UI**: إزالة Summary Cards والرسوم البيانية - الجدول فقط
+2. ✅ **Excel Export**: تصدير إلى .xlsx باستخدام SheetJS (مكتبة `xlsx`)
+3. ✅ **RTL/LTR Filenames**: أسماء ملفات محلية (`{title}_الردود_{date}.xlsx`)
+4. ✅ **Smart Disabling**: تعطيل زر التصدير عند عدم وجود ردود
+5. ✅ **Data Integrity**: معالجة صحيحة لأسئلة "both" في الملف المُصدَّر
+
+### v2.0 - Speechmatics Official SDK
 1. ✅ **SDK Integration**: استخدام `@speechmatics/real-time-client` v8.2.0 الرسمي
 2. ✅ **Accuracy Boost**: دقة أعلى بـ18% للعربية + دعم أفضل للهجات
 3. ✅ **Ultra-Low Latency**: <500ms للـpartials، <1s للـfinals
