@@ -232,16 +232,30 @@ export default function AnalyticsPage() {
                           </TableCell>
                           {survey.questions.map((question) => {
                             const answer = answersMap.get(question.id);
-                            const displayValue = answer?.scoreValue !== null && answer?.scoreValue !== undefined
-                              ? answer.scoreValue
-                              : answer?.textValue || '-';
+                            
+                            let displayValue = '-';
+                            if (question.type === 'both' && answer) {
+                              const score = answer.scoreValue !== null && answer.scoreValue !== undefined ? answer.scoreValue : null;
+                              const text = answer.textValue || null;
+                              if (score !== null && text !== null) {
+                                displayValue = `${score} – ${text}`;
+                              } else if (score !== null) {
+                                displayValue = String(score);
+                              } else if (text !== null) {
+                                displayValue = text;
+                              }
+                            } else if (answer?.scoreValue !== null && answer?.scoreValue !== undefined) {
+                              displayValue = String(answer.scoreValue);
+                            } else if (answer?.textValue) {
+                              displayValue = answer.textValue;
+                            }
                             
                             return (
                               <TableCell 
                                 key={question.id} 
                                 className="max-w-[200px] truncate"
                                 data-testid={`table-cell-response-${responseIndex + 1}-q${survey.questions.indexOf(question) + 1}`}
-                                title={String(displayValue)}
+                                title={displayValue}
                               >
                                 {displayValue}
                               </TableCell>
