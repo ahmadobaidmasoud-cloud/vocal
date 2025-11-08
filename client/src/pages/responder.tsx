@@ -49,7 +49,6 @@ export default function ResponderPage() {
   const autoStartedRef = useRef<string | null>(null);
   const userStoppedManuallyRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const micPermissionToastShownRef = useRef(false); // ✅ Prevent toast spam
   
   // Ref to track latest answers state (prevents stale state reads in rapid navigation)
   const answersRef = useRef(answers);
@@ -68,10 +67,13 @@ export default function ResponderPage() {
     isListening, 
     isSupported,
     error: speechError,
-    hasMicPermission, // ✅ iOS Safari fix
+    isPrimed, // ✅ iOS Safari fix: Track if audio pipeline initialized
+    primeOnce, // ✅ Initialize mic from user gesture
     startListening, 
     stopListening, 
-    resetTranscript 
+    resetTranscript,
+    muteAudio, // ✅ Mute mic during TTS
+    unmuteAudio // ✅ Unmute mic after TTS
   } = useSpeechRecognition(survey?.language === 'en' ? 'en-US' : 'ar-SA');
 
   const submitResponseMutation = useMutation({
@@ -125,38 +127,47 @@ export default function ResponderPage() {
     }
   }, [currentQuestion?.id, isMuted, showingIntro]);
 
-  const playTTS = useCallback((url: string) => {
+  const playTTS = useCallback(async (url: string) => {
     if (audioElement) {
       audioElement.pause();
     }
+    
+    // ✅ iOS Safari fix: Mute mic during TTS playback
+    muteAudio();
+    
     const audio = new Audio(url);
     audio.onplay = () => setIsPlaying(true);
-    audio.onended = () => {
+    audio.onended = async () => {
       setIsPlaying(false);
-      if (survey?.settings.voiceEnabled && currentQuestion) {
-        handleAutoStartListening();
+      
+      // ✅ iOS Safari fix: Unmute mic after TTS, then auto-start listening
+      if (survey?.settings.voiceEnabled && currentQuestion && isPrimed) {
+        await unmuteAudio();
+        setTimeout(() => {
+          handleAutoStartListening();
+        }, 200); // Small delay for audio context to resume
       }
     };
     audio.onerror = () => setIsPlaying(false);
     audio.play();
     setAudioElement(audio);
-  }, [audioElement, survey, currentQuestion]);
+  }, [audioElement, survey, currentQuestion, isPrimed, muteAudio, unmuteAudio]);
 
   const handleAutoStartListening = useCallback(() => {
     if (!isSupported || !survey?.settings.voiceEnabled || !currentQuestion) return;
     
-    // ✅ iOS Safari fix: Don't auto-start until user grants mic permission via button
-    if (!hasMicPermission) {
-      console.log('⏸️ Auto-start blocked - waiting for user to grant mic permission');
+    // ✅ iOS Safari fix: Don't auto-start until audio pipeline is primed
+    if (!isPrimed) {
+      console.log('⏸️ Auto-start blocked - audio pipeline not primed yet');
       return;
     }
     
     setTimeout(() => {
       resetTranscript();
-      startListening(currentQuestion.id); // ← Pass question ID to startListening
+      startListening(currentQuestion.id);
       autoStartedRef.current = currentQuestion.id;
-    }, 0); // ← Ultra-instant: 0ms delay!
-  }, [isSupported, survey, currentQuestion, startListening, resetTranscript, hasMicPermission]);
+    }, 0);
+  }, [isSupported, survey, currentQuestion, startListening, resetTranscript, isPrimed]);
 
   // When question changes, load saved answer and reset flags
   useEffect(() => {
@@ -184,22 +195,6 @@ export default function ResponderPage() {
     }
   }, [taggedTranscript, currentQuestion]);
 
-  // ✅ iOS Safari fix: Show toast when mic permission needed
-  useEffect(() => {
-    if (showingIntro || tutorialActive || !survey?.settings.voiceEnabled || !currentQuestion) return;
-    
-    // Show toast only once per session when permission is not granted
-    if (!hasMicPermission && !micPermissionToastShownRef.current && !isListening) {
-      toast({
-        title: isRTL ? '🎤 الميكروفون' : '🎤 Microphone',
-        description: isRTL 
-          ? 'اضغط زر الميكروفون أدناه للإجابة بالصوت'
-          : 'Tap the microphone button below to answer with your voice',
-        duration: 5000,
-      });
-      micPermissionToastShownRef.current = true;
-    }
-  }, [hasMicPermission, showingIntro, tutorialActive, survey, currentQuestion, isListening, toast, isRTL]);
 
   // Fallback: Auto-start recording for questions without TTS or when TTS fails (but not during intro)
   useEffect(() => {
@@ -302,17 +297,20 @@ export default function ResponderPage() {
     setCurrentQuestionIndex(prev => Math.max(prev - 1, 0));
   };
 
-  // Tutorial: Start mic permissions request
+  // ✅ iOS Safari fix: Prime audio pipeline from user gesture
   const handleTutorialStart = async () => {
     if (!survey?.settings.voiceEnabled) return;
     setTutorialActive(true);
     resetTranscript();
     try {
-      await startListening('tutorial'); // Request mic permissions
+      // Prime audio pipeline (getUserMedia called here from user gesture!)
+      await primeOnce();
+      
+      // Start listening for tutorial
+      await startListening('tutorial');
     } catch (error) {
-      // Permission denied or mic unavailable
       console.error('Tutorial mic error:', error);
-      setTutorialActive(false); // Reset tutorial state
+      setTutorialActive(false);
       alert(isRTL 
         ? '❌ لم نتمكن من الوصول للميكروفون. يمكنك المتابعة بالكتابة.'
         : '❌ Could not access microphone. You can continue by typing.'

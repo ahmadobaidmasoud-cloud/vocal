@@ -14,10 +14,13 @@ interface UseSpeechRecognitionReturn {
   isListening: boolean;
   isSupported: boolean;
   error: string | null;
-  hasMicPermission: boolean; // ✅ Track if user granted mic access
+  isPrimed: boolean; // ✅ Track if audio pipeline initialized from user gesture
+  primeOnce: () => Promise<void>; // ✅ Initialize mic once from user gesture (iOS Safari)
   startListening: (questionId: string) => Promise<void>;
   stopListening: () => Promise<void>; // ✅ Async to ensure clean teardown
   resetTranscript: () => void;
+  muteAudio: () => void; // ✅ Mute mic via GainNode (for TTS playback)
+  unmuteAudio: () => Promise<void>; // ✅ Unmute mic via GainNode (after TTS)
 }
 
 /**
@@ -38,7 +41,7 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [hasMicPermission, setHasMicPermission] = useState(false); // ✅ iOS Safari fix
+  const [isPrimed, setIsPrimed] = useState(false); // ✅ iOS Safari: Track if audio pipeline initialized
   const serviceRef = useRef<SpeechmaticsService | null>(null);
   
   // ✅ OPTIMIZATION 1: Cache JWT token (1-hour TTL)
@@ -140,23 +143,17 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
 
       await serviceRef.current.start();
       
-      // ✅ iOS Safari fix: Mark permission granted after successful start
-      setHasMicPermission(true);
+      // ✅ Mark as primed after first successful start
+      if (!isPrimed) {
+        setIsPrimed(true);
+      }
 
     } catch (err: any) {
       console.error('Failed to start speech recognition:', err);
-      
-      // ✅ iOS Safari: Check if permission denied
-      if (err.message?.includes('NotAllowedError') || err.message?.includes('not allowed')) {
-        setError('الميكروفون غير مسموح - اضغط زر الميكروفون للسماح');
-        setHasMicPermission(false);
-      } else {
-        setError(err.message || 'Failed to start');
-      }
-      
+      setError(err.message || 'Failed to start');
       setIsListening(false);
     }
-  }, [isSupported, isListening, language]);
+  }, [isSupported, isListening, language, isPrimed]);
 
   const stopListening = useCallback(async () => {
     if (serviceRef.current && isListening) {
@@ -173,15 +170,117 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
     }
   }, []);
 
+  // ✅ iOS Safari fix: Prime audio pipeline once from user gesture
+  const primeOnce = useCallback(async () => {
+    if (isPrimed || !isSupported) {
+      console.log('Already primed or not supported');
+      return;
+    }
+
+    try {
+      setError(null);
+      
+      // Fetch JWT token if not cached
+      const now = Date.now();
+      let token = tokenRef.current;
+
+      if (!token || now >= tokenExpiryRef.current) {
+        console.log('🔑 Fetching JWT token for priming...');
+        const response = await fetch('/api/speechmatics/token', {
+          method: 'POST',
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to get speech recognition token');
+        }
+
+        const data = await response.json();
+        token = data.token;
+        
+        tokenRef.current = token;
+        tokenExpiryRef.current = now + (55 * 60 * 1000);
+      }
+
+      const lang = language.startsWith('ar') ? 'ar' : 'en';
+
+      // Create service and initialize audio pipeline (getUserMedia called here!)
+      console.log('🎤 Priming audio pipeline from user gesture...');
+      serviceRef.current = new SpeechmaticsService({
+        questionId: 'prime', // Temporary ID
+        language: lang,
+        jwt: token!,
+        onPartialTranscript: (payload: TranscriptPayload) => {
+          setPartialTranscript({
+            questionId: payload.questionId,
+            text: cleanVoiceTranscript(payload.text),
+            confidence: payload.confidence,
+            isFinal: false,
+          });
+        },
+        onFinalTranscript: (payload: TranscriptPayload) => {
+          setTranscript({
+            questionId: payload.questionId,
+            text: cleanVoiceTranscript(payload.text),
+            confidence: payload.confidence,
+            isFinal: true,
+          });
+          setPartialTranscript(null);
+        },
+        onError: (errorMessage) => {
+          console.error('Speechmatics error:', errorMessage);
+          setError(errorMessage);
+          setIsListening(false);
+        },
+        onSessionStarted: () => {
+          setIsListening(true);
+        },
+        onSessionEnded: () => {
+          setIsListening(false);
+        },
+      });
+
+      // Start to trigger getUserMedia and initialize audio pipeline
+      await serviceRef.current.start();
+      
+      // Immediately mute and stop (we just wanted to prime the pipeline)
+      serviceRef.current.muteAudio();
+      await serviceRef.current.stop();
+      
+      setIsPrimed(true);
+      console.log('✅ Audio pipeline primed successfully!');
+
+    } catch (err: any) {
+      console.error('Failed to prime audio pipeline:', err);
+      setError(err.message || 'Failed to initialize microphone');
+    }
+  }, [isPrimed, isSupported, language]);
+
+  // ✅ iOS Safari fix: Mute mic during TTS playback
+  const muteAudio = useCallback(() => {
+    if (serviceRef.current) {
+      serviceRef.current.muteAudio();
+    }
+  }, []);
+
+  // ✅ iOS Safari fix: Unmute mic after TTS ends
+  const unmuteAudio = useCallback(async () => {
+    if (serviceRef.current) {
+      await serviceRef.current.unmuteAudio();
+    }
+  }, []);
+
   return {
     transcript,
     partialTranscript,
     isListening,
     isSupported,
     error,
-    hasMicPermission, // ✅ iOS Safari fix
+    isPrimed,
+    primeOnce,
     startListening,
     stopListening,
     resetTranscript,
+    muteAudio,
+    unmuteAudio,
   };
 }
