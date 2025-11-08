@@ -280,7 +280,17 @@ export default function ResponderPage() {
     if (!survey?.settings.voiceEnabled) return;
     setTutorialActive(true);
     resetTranscript();
-    await startListening('tutorial'); // Request mic permissions
+    try {
+      await startListening('tutorial'); // Request mic permissions
+    } catch (error) {
+      // Permission denied or mic unavailable
+      console.error('Tutorial mic error:', error);
+      setTutorialActive(false); // Reset tutorial state
+      alert(isRTL 
+        ? '❌ لم نتمكن من الوصول للميكروفون. يمكنك المتابعة بالكتابة.'
+        : '❌ Could not access microphone. You can continue by typing.'
+      );
+    }
   };
 
   // Tutorial: Complete and start survey
