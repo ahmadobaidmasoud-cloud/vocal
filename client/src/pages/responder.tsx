@@ -275,6 +275,22 @@ export default function ResponderPage() {
     setCurrentQuestionIndex(prev => Math.max(prev - 1, 0));
   };
 
+  // Tutorial: Start mic permissions request
+  const handleTutorialStart = async () => {
+    if (!survey?.settings.voiceEnabled) return;
+    setTutorialActive(true);
+    resetTranscript();
+    await startListening('tutorial'); // Request mic permissions
+  };
+
+  // Tutorial: Complete and start survey
+  const handleTutorialComplete = () => {
+    setTutorialActive(false);
+    stopListening();
+    resetTranscript();
+    setShowingIntro(false);
+  };
+
   // Voice commands (only process if transcript belongs to current question)
   useVoiceCommands(
     taggedTranscript?.questionId === currentQuestion?.id ? (taggedTranscript?.text ?? '') : '',
