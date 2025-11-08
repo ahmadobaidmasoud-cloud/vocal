@@ -133,6 +133,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Generate TTS for survey intro text
+  app.post("/api/surveys/:id/generate-intro-voice", async (req: Request, res: Response) => {
+    try {
+      const { text, language } = req.body;
+      if (!text) {
+        return res.status(400).json({ error: 'Text is required' });
+      }
+      
+      const audioUrl = await generateQuestionAudio(text, language || 'ar');
+      res.json({ voiceUrl: audioUrl });
+    } catch (error: any) {
+      console.error('Error generating intro TTS:', error);
+      res.status(500).json({ error: error.message || 'Failed to generate intro voice' });
+    }
+  });
+
   // Delete survey
   app.delete("/api/surveys/:id", async (req: Request, res: Response) => {
     try {

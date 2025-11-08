@@ -18,7 +18,8 @@ import {
   ArrowLeft,
   QrCode,
   ExternalLink,
-  Copy
+  Copy,
+  Volume2
 } from 'lucide-react';
 import { apiRequest, queryClient } from '@/lib/queryClient';
 import { useToast } from '@/hooks/use-toast';
@@ -33,6 +34,7 @@ export default function SurveyEditorPage() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [introText, setIntroText] = useState('');
+  const [introVoiceUrl, setIntroVoiceUrl] = useState('');
   const [language, setLanguage] = useState<'ar' | 'en'>('ar');
   const [primaryColor, setPrimaryColor] = useState('#22C55E');
   const [logoUrl, setLogoUrl] = useState('');
@@ -54,6 +56,7 @@ export default function SurveyEditorPage() {
       setTitle(survey.title);
       setDescription(survey.description || '');
       setIntroText(survey.introText || '');
+      setIntroVoiceUrl(survey.introVoiceUrl || '');
       setLanguage(survey.language as 'ar' | 'en');
       setPrimaryColor(survey.primaryColor || '#22C55E');
       setLogoUrl(survey.logoUrl || '');
@@ -84,12 +87,25 @@ export default function SurveyEditorPage() {
       title,
       description,
       introText,
+      introVoiceUrl,
       language,
       primaryColor,
       logoUrl,
       settings,
       questions,
     });
+  };
+
+  // Generate TTS audio for intro or questions
+  const generateQuestionAudio = async (text: string, lang: 'ar' | 'en'): Promise<string> => {
+    const response = await fetch(`/api/surveys/${surveyId}/generate-intro-voice`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, language: lang }),
+    });
+    if (!response.ok) throw new Error('Failed to generate audio');
+    const data = await response.json();
+    return data.voiceUrl;
   };
 
   const addQuestion = () => {
@@ -108,7 +124,10 @@ export default function SurveyEditorPage() {
 
   const updateQuestion = (index: number, updates: Partial<InsertQuestion>) => {
     const newQuestions = [...questions];
-    newQuestions[index] = { ...newQuestions[index], ...updates };
+    const updated = { ...newQuestions[index], ...updates };
+    // Clean null values to undefined for type safety
+    if (updated.voiceUrl === null) updated.voiceUrl = undefined;
+    newQuestions[index] = updated as (InsertQuestion & { id?: string; voiceUrl?: string });
     setQuestions(newQuestions);
   };
 
@@ -179,6 +198,61 @@ export default function SurveyEditorPage() {
           </TabsList>
 
           <TabsContent value="questions" className="space-y-4">
+            {/* Introduction Text Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle>{isRTL ? 'نص المقدمة' : 'Introduction Text'}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label htmlFor="introText">{isRTL ? 'نص ترحيبي يظهر قبل بداية الاستبيان' : 'Welcome text shown before survey starts'}</Label>
+                  <Textarea
+                    id="introText"
+                    value={introText}
+                    onChange={(e) => setIntroText(e.target.value)}
+                    placeholder={isRTL ? 'أدخل نص ترحيبي...' : 'Enter welcome text...'}
+                    className="mt-1"
+                    rows={4}
+                    data-testid="textarea-intro"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={async () => {
+                    if (!introText.trim()) {
+                      toast({
+                        title: isRTL ? 'خطأ' : 'Error',
+                        description: isRTL ? 'الرجاء إدخال نص المقدمة أولاً' : 'Please enter intro text first',
+                        variant: 'destructive',
+                      });
+                      return;
+                    }
+                    try {
+                      const audioUrl = await generateQuestionAudio(introText, language);
+                      if (audioUrl) {
+                        setIntroVoiceUrl(audioUrl);
+                        toast({
+                          title: isRTL ? 'تم' : 'Success',
+                          description: isRTL ? 'تم توليد الصوت للمقدمة' : 'Intro voice generated',
+                        });
+                      }
+                    } catch (error) {
+                      toast({
+                        title: isRTL ? 'خطأ' : 'Error',
+                        description: isRTL ? 'فشل توليد الصوت' : 'Failed to generate voice',
+                        variant: 'destructive',
+                      });
+                    }
+                  }}
+                  data-testid="button-generate-intro-voice"
+                >
+                  <Volume2 className="w-4 h-4 mr-2" />
+                  {isRTL ? 'توليد صوت المقدمة' : 'Generate Intro Voice'}
+                </Button>
+              </CardContent>
+            </Card>
+
             {/* Questions List */}
             <div className="space-y-4" data-testid="questions-list">
               {questions.map((question, index) => (
@@ -285,17 +359,6 @@ export default function SurveyEditorPage() {
                     onChange={(e) => setDescription(e.target.value)}
                     className="mt-1"
                     data-testid="textarea-description"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="introText">{isRTL ? 'نص المقدمة (قبل الأسئلة)' : 'Introduction Text (Before Questions)'}</Label>
-                  <Textarea
-                    id="introText"
-                    value={introText}
-                    onChange={(e) => setIntroText(e.target.value)}
-                    placeholder={isRTL ? 'أدخل نص ترحيبي يظهر قبل بداية الاستبيان...' : 'Enter welcome text shown before survey starts...'}
-                    className="mt-1"
-                    data-testid="textarea-intro"
                   />
                 </div>
                 <div>

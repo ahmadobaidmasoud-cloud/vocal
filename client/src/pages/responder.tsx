@@ -105,7 +105,7 @@ export default function ResponderPage() {
       resetTranscript();
       startListening();
       autoStartedRef.current = currentQuestion.id;
-    }, 100);
+    }, 1);
   }, [isSupported, survey, currentQuestion, startListening, resetTranscript]);
 
   // Sync transcript to editable text
@@ -163,7 +163,10 @@ export default function ResponderPage() {
       {
         keywords: VOICE_COMMANDS.next[isRTL ? 'ar' : 'en'],
         action: () => {
-          if (!isLastQuestion) {
+          if (isLastQuestion) {
+            // Auto-submit on last question
+            handleSubmit();
+          } else {
             handleNext();
           }
         },
@@ -202,7 +205,10 @@ export default function ResponderPage() {
         handleScoreSelect(detectedNumber);
         if (survey?.settings.autoAdvance) {
           setTimeout(() => {
-            if (!isLastQuestion) {
+            if (isLastQuestion) {
+              // Auto-submit on last question
+              handleSubmit();
+            } else {
               handleNext();
             }
           }, 500);
@@ -233,12 +239,25 @@ export default function ResponderPage() {
 
   const handleSubmit = async () => {
     if (!survey || !surveyId) return;
+    
+    // Build final answers with current question's answer included
+    const finalAnswers = { ...answers };
+    
+    // Ensure current question's answer is included
+    if (currentQuestion) {
+      if (currentQuestion.type === 'text' || currentQuestion.type === 'both') {
+        finalAnswers[currentQuestion.id] = {
+          ...finalAnswers[currentQuestion.id],
+          textValue: editableText
+        };
+      }
+    }
 
     const answersList: InsertAnswer[] = survey.questions.map(q => ({
       responseId: '', // Will be set by backend
       questionId: q.id,
-      scoreValue: answers[q.id]?.scoreValue || null,
-      textValue: answers[q.id]?.textValue || null,
+      scoreValue: finalAnswers[q.id]?.scoreValue || null,
+      textValue: finalAnswers[q.id]?.textValue || null,
     }));
 
     await submitResponseMutation.mutateAsync({
@@ -316,6 +335,13 @@ export default function ResponderPage() {
     );
   }
 
+  // Auto-play intro TTS when intro screen is shown
+  useEffect(() => {
+    if (showingIntro && survey?.introVoiceUrl && !isMuted && survey?.settings.voiceEnabled) {
+      playTTS(survey.introVoiceUrl);
+    }
+  }, [showingIntro, survey?.introVoiceUrl, isMuted]);
+
   if (showingIntro) {
     return (
       <div 
@@ -341,6 +367,16 @@ export default function ResponderPage() {
             <p className="text-lg text-muted-foreground mb-8 text-center whitespace-pre-wrap" data-testid="intro-text">
               {survey.introText}
             </p>
+
+            {/* Audio Playing Indicator */}
+            {isPlaying && (
+              <div className="flex justify-center mb-4">
+                <Badge variant="default" className="animate-pulse-slow">
+                  <Volume2 className="w-3 h-3 mr-1" />
+                  {isRTL ? 'يُشغّل الصوت...' : 'Playing Audio...'}
+                </Badge>
+              </div>
+            )}
 
             {/* Start Button */}
             <div className="flex justify-center">
@@ -426,8 +462,14 @@ export default function ResponderPage() {
                     key={score}
                     onClick={() => {
                       handleScoreSelect(score);
-                      if (survey.settings.autoAdvance && !isLastQuestion) {
-                        setTimeout(handleNext, 300);
+                      if (survey.settings.autoAdvance) {
+                        setTimeout(() => {
+                          if (isLastQuestion) {
+                            handleSubmit();
+                          } else {
+                            handleNext();
+                          }
+                        }, 300);
                       }
                     }}
                     className={`w-14 h-14 md:w-18 md:h-18 rounded-full text-2xl md:text-3xl font-bold transition-all
@@ -450,8 +492,14 @@ export default function ResponderPage() {
                     key={score}
                     onClick={() => {
                       handleScoreSelect(score);
-                      if (survey.settings.autoAdvance && !isLastQuestion) {
-                        setTimeout(handleNext, 300);
+                      if (survey.settings.autoAdvance) {
+                        setTimeout(() => {
+                          if (isLastQuestion) {
+                            handleSubmit();
+                          } else {
+                            handleNext();
+                          }
+                        }, 300);
                       }
                     }}
                     className={`w-12 h-12 md:w-14 md:h-14 rounded-full text-lg md:text-xl font-bold transition-all

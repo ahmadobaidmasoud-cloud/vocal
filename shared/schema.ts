@@ -10,6 +10,7 @@ export const surveys = pgTable("surveys", {
   title: text("title").notNull(),
   description: text("description"),
   introText: text("intro_text"), // Introduction text shown before first question
+  introVoiceUrl: text("intro_voice_url"), // TTS audio URL for intro text
   logoUrl: text("logo_url"),
   primaryColor: varchar("primary_color", { length: 7 }).default("#22C55E"),
   isActive: boolean("is_active").default(true).notNull(),
