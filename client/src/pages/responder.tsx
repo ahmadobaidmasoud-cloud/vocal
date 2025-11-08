@@ -29,6 +29,7 @@ export default function ResponderPage() {
   const [isMuted, setIsMuted] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
+  const [editableText, setEditableText] = useState('');
   const autoStartedRef = useRef<string | null>(null);
   const userStoppedManuallyRef = useRef(false);
 
@@ -94,13 +95,19 @@ export default function ResponderPage() {
       resetTranscript();
       startListening();
       autoStartedRef.current = currentQuestion.id;
-    }, 300);
+    }, 100);
   }, [isSupported, survey, currentQuestion, startListening, resetTranscript]);
 
-  // Reset manual stop flag when question changes
+  // Sync transcript to editable text
+  useEffect(() => {
+    setEditableText(transcript);
+  }, [transcript]);
+
+  // Reset manual stop flag and editable text when question changes
   useEffect(() => {
     userStoppedManuallyRef.current = false;
     autoStartedRef.current = null;
+    setEditableText('');
   }, [currentQuestion?.id]);
 
   // Fallback: Auto-start recording for questions without TTS or when TTS fails
@@ -125,7 +132,7 @@ export default function ResponderPage() {
       if (!currentQuestion) return;
       setAnswers(prev => ({
         ...prev,
-        [currentQuestion.id]: { textValue: transcript }
+        [currentQuestion.id]: { textValue: editableText }
       }));
     }
     stopListening();
@@ -208,7 +215,7 @@ export default function ResponderPage() {
     if (!currentQuestion) return;
     setAnswers(prev => ({
       ...prev,
-      [currentQuestion.id]: { textValue: transcript }
+      [currentQuestion.id]: { textValue: editableText }
     }));
     stopListening();
     resetTranscript();
@@ -365,8 +372,8 @@ export default function ResponderPage() {
             {(currentQuestion?.type === 'text' || currentQuestion?.type === 'both') && (
               <div className="space-y-2">
                 <Textarea
-                  value={transcript}
-                  onChange={(e) => {}}
+                  value={editableText}
+                  onChange={(e) => setEditableText(e.target.value)}
                   placeholder={isRTL ? 'قل إجابتك أو اكتبها هنا...' : 'Speak your answer or type here...'}
                   className="min-h-32 md:min-h-40 text-base resize-none"
                   data-testid="textarea-answer"

@@ -6,8 +6,8 @@ const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
 
 // Voice IDs for different languages
 const VOICE_IDS = {
-  ar: '21m00Tcm4TlvDq8ikWAM', // Rachel (works with Arabic)
-  en: '21m00Tcm4TlvDq8ikWAM', // Rachel
+  ar: 'yXEnnEln9armDCyhkXcA', // Custom Arabic voice
+  en: 'yXEnnEln9armDCyhkXcA', // Custom voice
 };
 
 export async function generateTTS(text: string, language: 'ar' | 'en' = 'ar'): Promise<Buffer> {
