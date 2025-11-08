@@ -30,6 +30,7 @@ export default function ResponderPage() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioElement, setAudioElement] = useState<HTMLAudioElement | null>(null);
   const [editableText, setEditableText] = useState('');
+  const [isCompleted, setIsCompleted] = useState(false);
   const autoStartedRef = useRef<string | null>(null);
   const userStoppedManuallyRef = useRef(false);
 
@@ -56,6 +57,7 @@ export default function ResponderPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/surveys', surveyId, 'analytics'] });
+      setIsCompleted(true);
     },
   });
 
@@ -235,9 +237,6 @@ export default function ResponderPage() {
       response: { surveyId },
       answers: answersList,
     });
-
-    // Show success message
-    alert(isRTL ? 'تم إرسال الإجابات بنجاح!' : 'Responses submitted successfully!');
   };
 
   if (isLoading) {
@@ -257,6 +256,53 @@ export default function ResponderPage() {
         <div className="text-center max-w-md" data-testid="error-not-found">
           <h1 className="text-3xl font-bold mb-4">{isRTL ? 'الاستبيان غير موجود' : 'Survey Not Found'}</h1>
           <p className="text-muted-foreground">{isRTL ? 'عذراً، لم نتمكن من العثور على هذا الاستبيان' : 'Sorry, we could not find this survey'}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isCompleted) {
+    return (
+      <div 
+        className="min-h-screen flex items-center justify-center bg-background p-4"
+        dir={isRTL ? 'rtl' : 'ltr'}
+        data-testid="page-thank-you"
+      >
+        <div className="w-full max-w-2xl">
+          <div className="bg-card border border-card-border rounded-2xl shadow-xl p-8 md:p-12 text-center">
+            {/* Logo */}
+            {survey.logoUrl && (
+              <div className="flex justify-center mb-6">
+                <img src={survey.logoUrl} alt="Logo" className="h-16 object-contain" data-testid="survey-logo-complete" />
+              </div>
+            )}
+
+            {/* Success Icon */}
+            <div className="flex justify-center mb-6">
+              <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
+                <Send className="w-10 h-10 text-primary" />
+              </div>
+            </div>
+
+            {/* Thank You Message */}
+            <h1 className="text-3xl md:text-4xl font-bold mb-4 text-card-foreground" data-testid="thank-you-title">
+              {isRTL ? 'شكراً لك!' : 'Thank You!'}
+            </h1>
+            <p className="text-lg text-muted-foreground mb-8" data-testid="thank-you-message">
+              {isRTL 
+                ? 'تم تسجيل ردك بنجاح. نقدر وقتك ومساهمتك.'
+                : 'Your response has been recorded successfully. We appreciate your time and contribution.'}
+            </p>
+
+            {/* Close Button */}
+            <Button
+              variant="outline"
+              onClick={() => window.close()}
+              data-testid="button-close"
+            >
+              {isRTL ? 'إغلاق' : 'Close'}
+            </Button>
+          </div>
         </div>
       </div>
     );
