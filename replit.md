@@ -23,6 +23,11 @@ VocalSurvey هي منصة استبيانات عربية-عالمية متقدم�
 ### الميزات الأساسية (MVP)
 
 #### 1. واجهة Responder الصوتية (`/survey/:id`)
+- **Tutorial الميكروفون** 🎤 (جديد v2.3):
+  - طلب صلاحيات الميكروفون بوضوح عبر زر "اختبر الميكروفون"
+  - تجربة تفاعلية: المستخدم يقول "التالي" لإكمال الـtutorial
+  - معالجة أخطاء رفض الصلاحيات (fallback للكتابة)
+  - حل نهائي لمشكلة Permission Denied على الجوال
 - تصميم بطاقات احترافي بتنسيق أخضر مطابق للتصميم المرفق
 - تشغيل تلقائي للأسئلة بالصوت (TTS)
 - التقاط الإجابات الصوتية (STT) مع دعم:
@@ -163,9 +168,25 @@ npm run db:push  # مزامنة Database schema
 ✅ Task 3: Integration & Testing - مكتمل
 ✅ Task 4: Speechmatics Upgrade - مكتمل (v2.0)
 ✅ Task 5: Analytics Simplified + Excel Export - مكتمل (v2.1)
-🚀 **Task 6: Intro TTS + Auto-Complete + Ultra-Fast STT** - مكتمل! (النسخة 2.2)
+✅ Task 6: Intro TTS + Auto-Complete + Ultra-Fast STT - مكتمل (v2.2)
+🚀 **Task 7: Microphone Permission Tutorial** - مكتمل! (النسخة 2.3)
 
 ## التحسينات المطبقة
+
+### v2.3 - Microphone Permission Tutorial (Mobile Fix)
+1. ✅ **Tutorial UI**: زر "🎤 اختبر الميكروفون" في صفحة المقدمة
+2. ✅ **Explicit Permission Request**: طلب صلاحيات الميكروفون عبر user action (حل لمشكلة الجوال)
+3. ✅ **Interactive Test**: المستخدم يقول "التالي" لإكمال الـtutorial
+4. ✅ **Real-time Feedback**: عرض transcript preview أثناء التسجيل
+5. ✅ **Error Handling**: معالجة رفض الصلاحيات + رسالة واضحة للمستخدم
+6. ✅ **Fallback Option**: زر "تخطي" للمتابعة بدون صوت
+7. ✅ **Voice Command Integration**: استخدام نفس نظام الأوامر الصوتية الموجود
+**التطبيق التقني**:
+- `tutorialActive` state للتحكم في وضع الـtutorial
+- `handleTutorialStart()` مع try/catch لمعالجة الأخطاء
+- `handleTutorialComplete()` لإنهاء الـtutorial وبدء الاستبيان
+- Tutorial voice command hook منفصل للاستماع لـ"التالي"
+- UI conditional rendering: tutorial badges + instructions + skip button
 
 ### v2.2 - Intro TTS + Auto-Complete + Ultra-Fast STT
 1. ✅ **Intro TTS**: نقل حقل introText لصفحة الأسئلة + زر توليد TTS للمقدمة
