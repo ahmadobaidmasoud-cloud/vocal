@@ -303,26 +303,6 @@ export default function ResponderPage() {
     setCurrentQuestionIndex(prev => Math.max(prev - 1, 0));
   };
 
-  // ✅ iOS Safari fix: Prime audio pipeline from user gesture
-  const handleTutorialStart = async () => {
-    if (!survey?.settings.voiceEnabled) return;
-    setTutorialActive(true);
-    resetTranscript();
-    try {
-      // Prime audio pipeline (getUserMedia called here from user gesture!)
-      await primeOnce();
-      
-      // Start listening for tutorial
-      await startListening('tutorial');
-    } catch (error) {
-      console.error('Tutorial mic error:', error);
-      setTutorialActive(false);
-      alert(isRTL 
-        ? '❌ لم نتمكن من الوصول للميكروفون. يمكنك المتابعة بالكتابة.'
-        : '❌ Could not access microphone. You can continue by typing.'
-      );
-    }
-  };
 
   // Tutorial: Complete and start survey
   const handleTutorialComplete = async () => {
@@ -587,35 +567,43 @@ export default function ResponderPage() {
             )}
 
             {/* Tutorial Mode UI */}
-            {tutorialActive && (
-              <div className="mb-6 space-y-4">
+            {tutorialActive && survey.settings.voiceEnabled && (
+              <div className="mb-6 text-center space-y-4">
+                {/* زر الميكروفون */}
+                <button
+                  onClick={toggleMic}
+                  className={`
+                    w-20 h-20 rounded-full flex items-center justify-center mx-auto
+                    transition-all shadow-lg
+                    ${isListening 
+                      ? 'bg-red-500 text-white animate-pulse' 
+                      : 'bg-green-500 text-white hover:bg-green-600 hover:scale-105'
+                    }
+                  `}
+                  data-testid="button-tutorial-mic"
+                >
+                  {isListening ? <MicOff className="w-8 h-8" /> : <Mic className="w-8 h-8" />}
+                </button>
+
+                {/* رسالة توجيهية */}
                 {isListening ? (
-                  <div className="text-center space-y-3">
-                    <Badge className="bg-red-500 text-white animate-pulse text-base px-4 py-2">
-                      <Mic className="w-4 h-4 mr-2" />
-                      {isRTL ? '🎙️ يسجل الآن...' : '🎙️ Recording...'}
-                    </Badge>
-                    
-                    <div className="bg-green-50 border-2 border-green-500 rounded-xl p-6">
-                      <p className="text-green-700 font-bold text-xl mb-2">
-                        {isRTL ? '✅ ممتاز! الميكروفون جاهز' : '✅ Great! Microphone Ready'}
+                  <div className="bg-green-50 border-2 border-green-500 rounded-xl p-6">
+                    <p className="text-green-700 font-bold text-xl mb-2">
+                      {isRTL ? '✅ ممتاز! الميكروفون جاهز' : '✅ Great! Microphone Ready'}
+                    </p>
+                    <p className="text-green-600 text-lg">
+                      {isRTL ? '💬 قل كلمة "التالي" للمتابعة' : '💬 Say "Next" to continue'}
+                    </p>
+                    {taggedPartialTranscript?.text && (
+                      <p className="text-gray-500 mt-3 text-sm">
+                        {isRTL ? 'سمعتك تقول:' : 'I heard:'} "{taggedPartialTranscript.text}"
                       </p>
-                      <p className="text-green-600 text-lg">
-                        {isRTL ? '💬 قل كلمة "التالي" للمتابعة' : '💬 Say "Next" to continue'}
-                      </p>
-                      {taggedPartialTranscript?.text && (
-                        <p className="text-gray-500 mt-3 text-sm">
-                          {isRTL ? 'سمعتك تقول:' : 'I heard:'} "{taggedPartialTranscript.text}"
-                        </p>
-                      )}
-                    </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="flex justify-center">
-                    <Badge className="bg-yellow-100 text-yellow-700 animate-pulse">
-                      {isRTL ? '⏳ جاري الاتصال...' : '⏳ Connecting...'}
-                    </Badge>
-                  </div>
+                  <p className="text-gray-600 text-lg">
+                    {isRTL ? '👆 اضغط الميكروفون لاختباره' : '👆 Tap microphone to test'}
+                  </p>
                 )}
               </div>
             )}
@@ -624,14 +612,11 @@ export default function ResponderPage() {
               {!tutorialActive ? (
                 <>
                   <Button
-                    onClick={survey.settings.voiceEnabled ? handleTutorialStart : () => setShowingIntro(false)}
+                    onClick={survey.settings.voiceEnabled ? () => { setTutorialActive(true); resetTranscript(); } : () => setShowingIntro(false)}
                     className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-xl"
                     data-testid="button-start"
                   >
-                    {survey.settings.voiceEnabled 
-                      ? (isRTL ? '🎤 اختبر الميكروفون' : '🎤 Test Microphone')
-                      : (isRTL ? 'ابدأ الآن' : 'Start Now')
-                    }
+                    {isRTL ? 'ابدأ الآن' : 'Start Now'}
                   </Button>
 
                   {survey.settings.voiceEnabled && (
