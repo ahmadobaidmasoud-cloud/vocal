@@ -13,7 +13,9 @@ import {
   ArrowRight,
   ArrowLeft,
   Check,
-  CheckCheck
+  CheckCheck,
+  CheckCircle,
+  MessageCircle
 } from 'lucide-react';
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useVoiceCommands, VOICE_COMMANDS, extractNumberFromTranscript } from '@/hooks/useVoiceCommands';
@@ -457,8 +459,8 @@ export default function ResponderPage() {
         } catch (error) {
           console.error('Failed to prime microphone:', error);
           alert(isRTL 
-            ? '❌ لم نتمكن من الوصول للميكروفون'
-            : '❌ Could not access microphone');
+            ? 'لم نتمكن من الوصول للميكروفون'
+            : 'Could not access microphone');
           return;
         }
       }
@@ -588,12 +590,14 @@ export default function ResponderPage() {
                 {/* رسالة توجيهية */}
                 {isListening ? (
                   <div className="bg-green-50 border-2 border-green-500 rounded-xl p-6">
-                    <p className="text-green-700 font-bold text-xl mb-2">
-                      {isRTL ? '✅ ممتاز! الميكروفون جاهز' : '✅ Great! Microphone Ready'}
-                    </p>
-                    <p className="text-green-600 text-lg">
-                      {isRTL ? '💬 قل كلمة "التالي" للمتابعة' : '💬 Say "Next" to continue'}
-                    </p>
+                    <div className="flex items-center justify-center gap-2 text-green-700 font-bold text-xl mb-2">
+                      <CheckCircle className="w-6 h-6" />
+                      <p>{isRTL ? 'ممتاز! الميكروفون جاهز' : 'Great! Microphone Ready'}</p>
+                    </div>
+                    <div className="flex items-center justify-center gap-2 text-green-600 text-lg">
+                      <MessageCircle className="w-5 h-5" />
+                      <p>{isRTL ? 'قل كلمة "التالي" للمتابعة' : 'Say "Next" to continue'}</p>
+                    </div>
                     {taggedPartialTranscript?.text && (
                       <p className="text-gray-500 mt-3 text-sm">
                         {isRTL ? 'سمعتك تقول:' : 'I heard:'} "{taggedPartialTranscript.text}"
@@ -602,7 +606,7 @@ export default function ResponderPage() {
                   </div>
                 ) : (
                   <p className="text-gray-600 text-lg">
-                    {isRTL ? '👆 اضغط الميكروفون لاختباره' : '👆 Tap microphone to test'}
+                    {isRTL ? 'اضغط الميكروفون لاختباره' : 'Tap microphone to test'}
                   </p>
                 )}
               </div>
