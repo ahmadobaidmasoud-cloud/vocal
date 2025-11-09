@@ -459,15 +459,33 @@ export default function ResponderPage() {
     });
   };
 
-  const toggleMic = () => {
+  const toggleMic = async () => {
+    if (!survey?.settings.voiceEnabled) return;
+
     if (isListening) {
-      stopListening();
+      // إيقاف التسجيل
+      await stopListening();
       userStoppedManuallyRef.current = true;
     } else {
-      if (currentQuestion) {
-        startListening(currentQuestion.id); // Pass question ID to startListening
-      }
+      // بدء التسجيل
       userStoppedManuallyRef.current = false;
+      
+      // ✨ إذا ما تم priming قبل → اعملها الآن (أول ضغطة في التوتوريال)
+      if (!isPrimed) {
+        try {
+          await primeOnce();
+        } catch (error) {
+          console.error('Failed to prime microphone:', error);
+          alert(isRTL 
+            ? '❌ لم نتمكن من الوصول للميكروفون'
+            : '❌ Could not access microphone');
+          return;
+        }
+      }
+      
+      // بعد priming نجح → ابدأ التسجيل
+      const questionId = tutorialActive ? 'tutorial' : (currentQuestion?.id || 'manual');
+      await startListening(questionId);
     }
   };
 
