@@ -6,7 +6,6 @@ export interface TaggedTranscript {
   text: string;
   confidence: number;
   isFinal: boolean;
-  contextVersion?: number; // ← Track version for filtering stale transcripts
 }
 
 interface UseSpeechRecognitionReturn {
@@ -18,7 +17,6 @@ interface UseSpeechRecognitionReturn {
   startListening: (questionId: string) => Promise<void>;
   stopListening: () => void;
   resetTranscript: () => void;
-  updateQuestionId: (questionId: string) => void; // ← NEW: Update context without stopping
 }
 
 /**
@@ -85,7 +83,6 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
             text: cleanVoiceTranscript(payload.text),
             confidence: payload.confidence,
             isFinal: false,
-            contextVersion: payload.contextVersion, // ← Include version
           });
         },
         onFinalTranscript: (payload: TranscriptPayload) => {
@@ -94,7 +91,6 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
             text: cleanVoiceTranscript(payload.text),
             confidence: payload.confidence,
             isFinal: true,
-            contextVersion: payload.contextVersion, // ← Include version
           });
           setPartialTranscript(null); // Clear partial when we get final
         },
@@ -137,16 +133,6 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
     }
   }, []);
 
-  /**
-   * Update question context without stopping recording
-   * Keeps microphone active while tagging future transcripts with new questionId
-   */
-  const updateQuestionId = useCallback((questionId: string) => {
-    if (serviceRef.current) {
-      serviceRef.current.updateQuestionContext(questionId);
-    }
-  }, []);
-
   return {
     transcript,
     partialTranscript,
@@ -156,6 +142,5 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
     startListening,
     stopListening,
     resetTranscript,
-    updateQuestionId, // ← NEW
   };
 }

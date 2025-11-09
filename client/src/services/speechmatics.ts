@@ -8,7 +8,6 @@ export interface TranscriptPayload {
   text: string;
   confidence: number;
   isFinal: boolean;
-  contextVersion: number; // ← Track context changes to filter stale transcripts
 }
 
 export interface SpeechmaticsConfig {
@@ -30,7 +29,6 @@ export class SpeechmaticsService {
   private mediaStream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
-  private contextVersion = 0; // ← Incremented on each updateQuestionContext()
 
   constructor(config: SpeechmaticsConfig) {
     this.config = config;
@@ -105,7 +103,6 @@ export class SpeechmaticsService {
                 text: transcript,
                 confidence,
                 isFinal: false,
-                contextVersion: this.contextVersion, // ← Include version
               });
             }
           }
@@ -124,7 +121,6 @@ export class SpeechmaticsService {
                 text: this.finalTranscript,
                 confidence,
                 isFinal: true,
-                contextVersion: this.contextVersion, // ← Include version
               });
             }
           }
@@ -248,18 +244,5 @@ export class SpeechmaticsService {
 
   reset(): void {
     this.finalTranscript = '';
-  }
-
-  /**
-   * Update question context without stopping recording
-   * Used when navigating between questions while keeping microphone active
-   * 
-   * @param questionId - The new question ID to tag future transcripts with
-   */
-  updateQuestionContext(questionId: string): void {
-    this.config.questionId = questionId;
-    this.finalTranscript = ''; // Reset accumulated transcript for new question
-    this.contextVersion++; // Increment version to filter stale transcripts
-    console.log(`📝 Question context updated to: ${questionId} (v${this.contextVersion})`);
   }
 }

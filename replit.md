@@ -133,10 +133,17 @@ npm run db:push  # مزامنة Database schema
 ```
 
 ## ملاحظات تقنية
-- استخدام Web Speech API يتطلب HTTPS (أو localhost)
+- استخدام Speechmatics API يتطلب HTTPS (أو localhost)
 - الصوتيات تعمل فقط على المتصفحات الحديثة
 - دعم RTL كامل للعربية في جميع الواجهات
 - الألوان الخضراء (#22C55E) مطابقة للتصميم المرفق
+
+### Recording Architecture Decision
+- **Pattern Used**: Stop/Restart per question
+- **Rationale**: Ensures transcript accuracy by cleanly separating question contexts
+- **Latency Cost**: ~150-300ms per question (comparable to natural pause)
+- **Browser Behavior**: Modern browsers cache mic permissions, no re-prompts
+- **Continuous Recording**: Attempted but abandoned due to late-transcript corruption issues with Speechmatics session resets
 
 ## ملاحظات تقنية هامة
 

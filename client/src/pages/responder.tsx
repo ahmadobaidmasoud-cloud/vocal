@@ -67,8 +67,7 @@ export default function ResponderPage() {
     error: speechError,
     startListening, 
     stopListening, 
-    resetTranscript,
-    updateQuestionId  // ← NEW: Update context without stopping recording
+    resetTranscript
   } = useSpeechRecognition(survey?.language === 'en' ? 'en-US' : 'ar-SA');
 
   const submitResponseMutation = useMutation({
@@ -142,21 +141,12 @@ export default function ResponderPage() {
   const handleAutoStartListening = useCallback(() => {
     if (!isSupported || !survey?.settings.voiceEnabled || !currentQuestion) return;
     
-    // If already listening (continuous recording), just update context
-    if (isListening) {
-      updateQuestionId(currentQuestion.id);
-      resetTranscript();
-      autoStartedRef.current = currentQuestion.id;
-      return;
-    }
-    
-    // Otherwise, start fresh session
     setTimeout(() => {
       resetTranscript();
       startListening(currentQuestion.id); // ← Pass question ID to startListening
       autoStartedRef.current = currentQuestion.id;
     }, 1);
-  }, [isSupported, survey, currentQuestion, startListening, resetTranscript, isListening, updateQuestionId]);
+  }, [isSupported, survey, currentQuestion, startListening, resetTranscript]);
 
   // When question changes, load saved answer and reset flags
   useEffect(() => {
@@ -236,11 +226,7 @@ export default function ResponderPage() {
       }
     ]);
 
-    // Update question context to next question (continuous recording!)
-    const nextIndex = currentQuestionIndex + 1;
-    if (survey?.questions[nextIndex]) {
-      updateQuestionId(survey.questions[nextIndex].id);
-    }
+    stopListening();
     resetTranscript();
     setCurrentQuestionIndex(prev => Math.min(prev + 1, (survey?.questions.length || 1) - 1));
   };
@@ -284,11 +270,7 @@ export default function ResponderPage() {
       return newHistory;
     });
     
-    // Update question context to previous question (continuous recording!)
-    const prevIndex = currentQuestionIndex - 1;
-    if (survey?.questions[prevIndex]) {
-      updateQuestionId(survey.questions[prevIndex].id);
-    }
+    stopListening();
     resetTranscript();
     setCurrentQuestionIndex(prev => Math.max(prev - 1, 0));
   };
@@ -311,13 +293,10 @@ export default function ResponderPage() {
     }
   };
 
-  // Tutorial: Complete and start survey (keep recording active!)
+  // Tutorial: Complete and start survey
   const handleTutorialComplete = () => {
     setTutorialActive(false);
-    // Update question context to first question (continuous recording!)
-    if (survey?.questions[0]) {
-      updateQuestionId(survey.questions[0].id);
-    }
+    stopListening();
     resetTranscript();
     setShowingIntro(false);
   };
