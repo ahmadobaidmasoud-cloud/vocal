@@ -14,13 +14,9 @@ interface UseSpeechRecognitionReturn {
   isListening: boolean;
   isSupported: boolean;
   error: string | null;
-  isPrimed: boolean; // ✅ Track if audio pipeline initialized from user gesture
-  primeOnce: () => Promise<void>; // ✅ Initialize mic once from user gesture (iOS Safari)
   startListening: (questionId: string) => Promise<void>;
-  stopListening: () => Promise<void>; // ✅ Async to ensure clean teardown
+  stopListening: () => void;
   resetTranscript: () => void;
-  muteAudio: () => void; // ✅ Mute mic via GainNode (for TTS playback)
-  unmuteAudio: () => Promise<void>; // ✅ Unmute mic via GainNode (after TTS)
 }
 
 /**
@@ -41,22 +37,15 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
   const [isListening, setIsListening] = useState(false);
   const [isSupported, setIsSupported] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isPrimed, setIsPrimed] = useState(false); // ✅ iOS Safari: Track if audio pipeline initialized
   const serviceRef = useRef<SpeechmaticsService | null>(null);
-  
-  // ✅ OPTIMIZATION 1: Cache JWT token (1-hour TTL)
-  const tokenRef = useRef<string | null>(null);
-  const tokenExpiryRef = useRef<number>(0);
 
   useEffect(() => {
     // Speechmatics is supported if we can access backend
     setIsSupported(true);
 
     return () => {
-      // Cleanup audio resources when component unmounts
       if (serviceRef.current) {
         serviceRef.current.stop();
-        serviceRef.current.cleanup();
       }
     };
   }, []);
@@ -69,146 +58,25 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
     setPartialTranscript(null);
 
     try {
-      // ✅ OPTIMIZATION 1: Reuse cached JWT token if valid (saves ~200ms)
-      const now = Date.now();
-      let token = tokenRef.current;
+      // Fetch temporary JWT token from backend (secure!)
+      const response = await fetch('/api/speechmatics/token', {
+        method: 'POST',
+      });
 
-      if (!token || now >= tokenExpiryRef.current) {
-        console.log('🔑 Fetching new JWT token...');
-        const response = await fetch('/api/speechmatics/token', {
-          method: 'POST',
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to get speech recognition token');
-        }
-
-        const data = await response.json();
-        token = data.token;
-        
-        // Cache token for 55 minutes (safe margin before 60min expiry)
-        tokenRef.current = token;
-        tokenExpiryRef.current = now + (55 * 60 * 1000);
-        console.log('✅ JWT token cached (valid for 55min)');
-      } else {
-        console.log('♻️ Reusing cached JWT token');
+      if (!response.ok) {
+        throw new Error('Failed to get speech recognition token');
       }
+
+      const { token } = await response.json();
 
       // Determine language code
       const lang = language.startsWith('ar') ? 'ar' : 'en';
 
-      // ✅ OPTIMIZATION 2: Reuse service instance to keep audio pipeline alive
-      if (!serviceRef.current) {
-        console.log('🆕 Creating new Speechmatics service (first time)');
-        serviceRef.current = new SpeechmaticsService({
-          questionId,
-          language: lang,
-          jwt: token!,
-          onPartialTranscript: (payload: TranscriptPayload) => {
-            setPartialTranscript({
-              questionId: payload.questionId,
-              text: cleanVoiceTranscript(payload.text),
-              confidence: payload.confidence,
-              isFinal: false,
-            });
-          },
-          onFinalTranscript: (payload: TranscriptPayload) => {
-            setTranscript({
-              questionId: payload.questionId,
-              text: cleanVoiceTranscript(payload.text),
-              confidence: payload.confidence,
-              isFinal: true,
-            });
-            setPartialTranscript(null);
-          },
-          onError: (errorMessage) => {
-            console.error('Speechmatics error:', errorMessage);
-            setError(errorMessage);
-            setIsListening(false);
-          },
-          onSessionStarted: () => {
-            console.log(`🎤 Recording started for question: ${questionId}`);
-            setIsListening(true);
-          },
-          onSessionEnded: () => {
-            console.log('🛑 Recording ended');
-            setIsListening(false);
-          },
-        });
-      } else {
-        // Reuse existing service - just update questionId and JWT
-        console.log('♻️ Reusing existing service instance (audio pipeline kept!)');
-        serviceRef.current.updateConfig({ questionId, jwt: token! });
-      }
-
-      await serviceRef.current.start();
-      
-      // ✅ Mark as primed after first successful start
-      if (!isPrimed) {
-        setIsPrimed(true);
-      }
-
-    } catch (err: any) {
-      console.error('Failed to start speech recognition:', err);
-      setError(err.message || 'Failed to start');
-      setIsListening(false);
-    }
-  }, [isSupported, isListening, language, isPrimed]);
-
-  const stopListening = useCallback(async () => {
-    if (serviceRef.current && isListening) {
-      await serviceRef.current.stop(); // ✅ Await to ensure clean teardown
-      setIsListening(false);
-    }
-  }, [isListening]);
-
-  const resetTranscript = useCallback(() => {
-    setTranscript(null);
-    setPartialTranscript(null);
-    if (serviceRef.current) {
-      serviceRef.current.reset();
-    }
-  }, []);
-
-  // ✅ iOS Safari fix: Prime audio pipeline once from user gesture
-  const primeOnce = useCallback(async () => {
-    if (isPrimed || !isSupported) {
-      console.log('Already primed or not supported');
-      return;
-    }
-
-    try {
-      setError(null);
-      
-      // Fetch JWT token if not cached
-      const now = Date.now();
-      let token = tokenRef.current;
-
-      if (!token || now >= tokenExpiryRef.current) {
-        console.log('🔑 Fetching JWT token for priming...');
-        const response = await fetch('/api/speechmatics/token', {
-          method: 'POST',
-        });
-
-        if (!response.ok) {
-          throw new Error('Failed to get speech recognition token');
-        }
-
-        const data = await response.json();
-        token = data.token;
-        
-        tokenRef.current = token;
-        tokenExpiryRef.current = now + (55 * 60 * 1000);
-      }
-
-      const lang = language.startsWith('ar') ? 'ar' : 'en';
-
-      // Create service and initialize audio pipeline (getUserMedia called here!)
-      console.log('🎤 Priming audio pipeline from user gesture...');
+      // Create new Speechmatics service with questionId + callbacks
       serviceRef.current = new SpeechmaticsService({
-        questionId: 'prime', // Temporary ID
+        questionId, // ← Capture question ID in service instance
         language: lang,
-        jwt: token!,
+        jwt: token,
         onPartialTranscript: (payload: TranscriptPayload) => {
           setPartialTranscript({
             questionId: payload.questionId,
@@ -224,7 +92,7 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
             confidence: payload.confidence,
             isFinal: true,
           });
-          setPartialTranscript(null);
+          setPartialTranscript(null); // Clear partial when we get final
         },
         onError: (errorMessage) => {
           console.error('Speechmatics error:', errorMessage);
@@ -232,42 +100,36 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
           setIsListening(false);
         },
         onSessionStarted: () => {
+          console.log(`🎤 Recording started for question: ${questionId}`);
           setIsListening(true);
         },
         onSessionEnded: () => {
+          console.log('🛑 Recording ended');
           setIsListening(false);
         },
       });
 
-      // Start to trigger getUserMedia and initialize audio pipeline
       await serviceRef.current.start();
-      
-      // Stop the priming session (we just wanted to initialize getUserMedia)
-      await serviceRef.current.stop();
-      
-      // ✅ Ensure mic is unmuted after priming (ready for tutorial/questions)
-      await serviceRef.current.unmuteAudio();
-      
-      setIsPrimed(true);
-      console.log('✅ Audio pipeline primed successfully!');
 
     } catch (err: any) {
-      console.error('Failed to prime audio pipeline:', err);
-      setError(err.message || 'Failed to initialize microphone');
+      console.error('Failed to start speech recognition:', err);
+      setError(err.message || 'Failed to start');
+      setIsListening(false);
     }
-  }, [isPrimed, isSupported, language]);
+  }, [isSupported, isListening, language]);
 
-  // ✅ iOS Safari fix: Mute mic during TTS playback
-  const muteAudio = useCallback(() => {
-    if (serviceRef.current) {
-      serviceRef.current.muteAudio();
+  const stopListening = useCallback(() => {
+    if (serviceRef.current && isListening) {
+      serviceRef.current.stop();
+      setIsListening(false);
     }
-  }, []);
+  }, [isListening]);
 
-  // ✅ iOS Safari fix: Unmute mic after TTS ends
-  const unmuteAudio = useCallback(async () => {
+  const resetTranscript = useCallback(() => {
+    setTranscript(null);
+    setPartialTranscript(null);
     if (serviceRef.current) {
-      await serviceRef.current.unmuteAudio();
+      serviceRef.current.reset();
     }
   }, []);
 
@@ -277,12 +139,8 @@ export function useSpeechRecognition(language: string = 'ar-SA'): UseSpeechRecog
     isListening,
     isSupported,
     error,
-    isPrimed,
-    primeOnce,
     startListening,
     stopListening,
     resetTranscript,
-    muteAudio,
-    unmuteAudio,
   };
 }

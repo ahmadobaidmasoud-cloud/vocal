@@ -18,7 +18,6 @@ import {
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { useVoiceCommands, VOICE_COMMANDS, extractNumberFromTranscript } from '@/hooks/useVoiceCommands';
 import { apiRequest, queryClient } from '@/lib/queryClient';
-import { useToast } from '@/hooks/use-toast';
 import type { SurveyWithQuestions, InsertResponse, InsertAnswer, Question } from '@shared/schema';
 
 interface ConversationMessage {
@@ -34,7 +33,6 @@ interface ConversationMessage {
 export default function ResponderPage() {
   const [, params] = useRoute('/survey/:id');
   const surveyId = params?.id;
-  const { toast } = useToast();
 
   const [showingIntro, setShowingIntro] = useState(true);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -67,13 +65,9 @@ export default function ResponderPage() {
     isListening, 
     isSupported,
     error: speechError,
-    isPrimed, // ✅ iOS Safari fix: Track if audio pipeline initialized
-    primeOnce, // ✅ Initialize mic from user gesture
     startListening, 
     stopListening, 
-    resetTranscript,
-    muteAudio, // ✅ Mute mic during TTS
-    unmuteAudio // ✅ Unmute mic after TTS
+    resetTranscript 
   } = useSpeechRecognition(survey?.language === 'en' ? 'en-US' : 'ar-SA');
 
   const submitResponseMutation = useMutation({
@@ -127,53 +121,32 @@ export default function ResponderPage() {
     }
   }, [currentQuestion?.id, isMuted, showingIntro]);
 
-  const playTTS = useCallback(async (url: string) => {
+  const playTTS = useCallback((url: string) => {
     if (audioElement) {
       audioElement.pause();
     }
-    
-    // ✅ iOS Safari fix: Mute mic during TTS playback
-    muteAudio();
-    
     const audio = new Audio(url);
     audio.onplay = () => setIsPlaying(true);
-    audio.onended = async () => {
+    audio.onended = () => {
       setIsPlaying(false);
-      
-      // ✅ iOS Safari fix: Unmute mic after TTS, then auto-start listening
-      if (survey?.settings.voiceEnabled && currentQuestion && isPrimed) {
-        await unmuteAudio();
-        setTimeout(() => {
-          handleAutoStartListening();
-        }, 200); // Small delay for audio context to resume
+      if (survey?.settings.voiceEnabled && currentQuestion) {
+        handleAutoStartListening();
       }
     };
-    audio.onerror = async () => {
-      setIsPlaying(false);
-      // ✅ CRITICAL: Unmute mic even if TTS fails (prevent permanent mute)
-      if (survey?.settings.voiceEnabled && isPrimed) {
-        await unmuteAudio();
-      }
-    };
+    audio.onerror = () => setIsPlaying(false);
     audio.play();
     setAudioElement(audio);
-  }, [audioElement, survey, currentQuestion, isPrimed, muteAudio, unmuteAudio]);
+  }, [audioElement, survey, currentQuestion]);
 
   const handleAutoStartListening = useCallback(() => {
     if (!isSupported || !survey?.settings.voiceEnabled || !currentQuestion) return;
     
-    // ✅ iOS Safari fix: Don't auto-start until audio pipeline is primed
-    if (!isPrimed) {
-      console.log('⏸️ Auto-start blocked - audio pipeline not primed yet');
-      return;
-    }
-    
     setTimeout(() => {
       resetTranscript();
-      startListening(currentQuestion.id);
+      startListening(currentQuestion.id); // ← Pass question ID to startListening
       autoStartedRef.current = currentQuestion.id;
-    }, 0);
-  }, [isSupported, survey, currentQuestion, startListening, resetTranscript, isPrimed]);
+    }, 1);
+  }, [isSupported, survey, currentQuestion, startListening, resetTranscript]);
 
   // When question changes, load saved answer and reset flags
   useEffect(() => {
@@ -201,7 +174,6 @@ export default function ResponderPage() {
     }
   }, [taggedTranscript, currentQuestion]);
 
-
   // Fallback: Auto-start recording for questions without TTS or when TTS fails (but not during intro)
   useEffect(() => {
     if (showingIntro || !currentQuestion || !survey?.settings.voiceEnabled) return;
@@ -219,7 +191,7 @@ export default function ResponderPage() {
   }, [currentQuestion?.id, isMuted, isListening, isPlaying, survey, handleAutoStartListening, showingIntro]);
 
   // Navigation handlers
-  const handleNext = async () => {
+  const handleNext = () => {
     if (!currentQuestion) return;
     
     // For text/both questions, update answersRef synchronously BEFORE reading it
@@ -254,12 +226,12 @@ export default function ResponderPage() {
       }
     ]);
 
-    await stopListening(); // ✅ Await to ensure clean teardown before next question
+    stopListening();
     resetTranscript();
     setCurrentQuestionIndex(prev => Math.min(prev + 1, (survey?.questions.length || 1) - 1));
   };
 
-  const handlePrevious = async () => {
+  const handlePrevious = () => {
     if (currentQuestionIndex === 0) return;
     
     // ALWAYS save current answer to answersRef BEFORE navigating (prevents data loss for both score AND text)
@@ -298,25 +270,22 @@ export default function ResponderPage() {
       return newHistory;
     });
     
-    await stopListening(); // ✅ Await to ensure clean teardown before previous question
+    stopListening();
     resetTranscript();
     setCurrentQuestionIndex(prev => Math.max(prev - 1, 0));
   };
 
-  // ✅ iOS Safari fix: Prime audio pipeline from user gesture
+  // Tutorial: Start mic permissions request
   const handleTutorialStart = async () => {
     if (!survey?.settings.voiceEnabled) return;
     setTutorialActive(true);
     resetTranscript();
     try {
-      // Prime audio pipeline (getUserMedia called here from user gesture!)
-      await primeOnce();
-      
-      // Start listening for tutorial
-      await startListening('tutorial');
+      await startListening('tutorial'); // Request mic permissions
     } catch (error) {
+      // Permission denied or mic unavailable
       console.error('Tutorial mic error:', error);
-      setTutorialActive(false);
+      setTutorialActive(false); // Reset tutorial state
       alert(isRTL 
         ? '❌ لم نتمكن من الوصول للميكروفون. يمكنك المتابعة بالكتابة.'
         : '❌ Could not access microphone. You can continue by typing.'
@@ -325,9 +294,9 @@ export default function ResponderPage() {
   };
 
   // Tutorial: Complete and start survey
-  const handleTutorialComplete = async () => {
+  const handleTutorialComplete = () => {
     setTutorialActive(false);
-    await stopListening(); // ✅ Await to ensure clean teardown
+    stopListening();
     resetTranscript();
     setShowingIntro(false);
   };

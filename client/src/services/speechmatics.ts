@@ -26,21 +26,12 @@ export class SpeechmaticsService {
   private config: SpeechmaticsConfig;
   private isActive = false;
   private finalTranscript = '';
-  
-  // ✅ OPTIMIZATION: Reuse audio pipeline between sessions
   private mediaStream: MediaStream | null = null;
   private audioContext: AudioContext | null = null;
   private processor: ScriptProcessorNode | null = null;
-  private source: MediaStreamAudioSourceNode | null = null;
-  private micGainNode: GainNode | null = null; // ✅ iOS Safari fix: Control mic via gain instead of stop/start
 
   constructor(config: SpeechmaticsConfig) {
     this.config = config;
-  }
-
-  // ✅ Update config for new question (reuse same service instance!)
-  updateConfig(newConfig: Partial<SpeechmaticsConfig>): void {
-    this.config = { ...this.config, ...newConfig };
   }
 
   async start(): Promise<void> {
@@ -167,13 +158,7 @@ export class SpeechmaticsService {
 
   private async startMicrophoneCapture(): Promise<void> {
     try {
-      // ✅ OPTIMIZATION: Reuse existing audio pipeline if available (saves ~100ms)
-      if (this.mediaStream && this.audioContext && this.processor && this.source && this.micGainNode) {
-        console.log('♻️ Reusing existing audio pipeline');
-        return;
-      }
-
-      // Get microphone stream (first time only)
+      // Get microphone stream
       this.mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
@@ -184,16 +169,9 @@ export class SpeechmaticsService {
         },
       });
 
-      // Create audio processing chain (first time only)
+      // Create audio processing chain
       this.audioContext = new AudioContext({ sampleRate: 16000 });
-      await this.audioContext.resume(); // ✅ iOS Safari: Resume context from user gesture
-      
-      this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
-      
-      // ✅ iOS Safari fix: Add GainNode to control mic mute/unmute without stopping stream
-      this.micGainNode = this.audioContext.createGain();
-      this.micGainNode.gain.value = 1; // Start unmuted
-      
+      const source = this.audioContext.createMediaStreamSource(this.mediaStream);
       this.processor = this.audioContext.createScriptProcessor(4096, 1, 1);
 
       // Process and send audio data
@@ -213,12 +191,10 @@ export class SpeechmaticsService {
         this.client.sendAudio(int16Data.buffer);
       };
 
-      // Connect audio pipeline with gain node
-      this.source.connect(this.micGainNode);
-      this.micGainNode.connect(this.processor);
+      source.connect(this.processor);
       this.processor.connect(this.audioContext.destination);
 
-      console.log('🎤 Microphone capture started with GainNode control');
+      console.log('🎤 Microphone capture started');
 
     } catch (error: any) {
       console.error('Microphone error:', error);
@@ -230,54 +206,35 @@ export class SpeechmaticsService {
     if (!this.isActive) return;
 
     try {
-      // ✅ Set isActive=false IMMEDIATELY to allow next session to start
-      this.isActive = false;
-      this.finalTranscript = '';
-
-      // Stop recognition session (but keep audio pipeline alive!)
-      if (this.client) {
-        await this.client.stopRecognition();
-        this.client = null;
-      }
-
-      console.log('🛑 Speechmatics session stopped (audio pipeline kept alive)');
-
-    } catch (error) {
-      console.error('Error stopping Speechmatics:', error);
-      // Ensure isActive is false even on error
-      this.isActive = false;
-    }
-  }
-
-  // ✅ Cleanup audio resources when survey is complete
-  async cleanup(): Promise<void> {
-    try {
-      // Disconnect audio processor
+      // Stop microphone
       if (this.processor) {
         this.processor.disconnect();
         this.processor = null;
       }
 
-      if (this.source) {
-        this.source.disconnect();
-        this.source = null;
-      }
-
-      // Stop microphone stream
       if (this.mediaStream) {
         this.mediaStream.getTracks().forEach(track => track.stop());
         this.mediaStream = null;
       }
 
-      // Close audio context
       if (this.audioContext) {
         await this.audioContext.close();
         this.audioContext = null;
       }
 
-      console.log('🧹 Audio pipeline cleaned up');
+      // Stop recognition session
+      if (this.client) {
+        await this.client.stopRecognition();
+        this.client = null;
+      }
+
+      this.isActive = false;
+      this.finalTranscript = '';
+
+      console.log('🛑 Speechmatics stopped');
+
     } catch (error) {
-      console.error('Error cleaning up audio:', error);
+      console.error('Error stopping Speechmatics:', error);
     }
   }
 
@@ -287,26 +244,5 @@ export class SpeechmaticsService {
 
   reset(): void {
     this.finalTranscript = '';
-  }
-
-  // ✅ iOS Safari fix: Mute mic via GainNode (keeps stream alive)
-  muteAudio(): void {
-    if (this.micGainNode) {
-      this.micGainNode.gain.value = 0;
-      console.log('🔇 Microphone muted (gain = 0)');
-    }
-  }
-
-  // ✅ iOS Safari fix: Unmute mic via GainNode
-  async unmuteAudio(): Promise<void> {
-    if (this.micGainNode && this.audioContext) {
-      try {
-        await this.audioContext.resume(); // ✅ Safari requires resume
-        this.micGainNode.gain.value = 1;
-        console.log('🔊 Microphone unmuted (gain = 1)');
-      } catch (error) {
-        console.error('Error unmuting audio:', error);
-      }
-    }
   }
 }
