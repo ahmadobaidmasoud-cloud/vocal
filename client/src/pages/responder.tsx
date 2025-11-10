@@ -34,7 +34,7 @@ export default function ResponderPage() {
   const [, params] = useRoute('/survey/:id');
   const surveyId = params?.id;
 
-  const [showingIntro, setShowingIntro] = useState(true);
+  const [showingIntro, setShowingIntro] = useState(false);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [answers, setAnswers] = useState<Record<string, { scoreValue?: number; textValue?: string }>>({});
@@ -101,26 +101,12 @@ export default function ResponderPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversationHistory, currentQuestionIndex]);
 
-  // Check if we should show intro
+  // Auto-play TTS when question changes
   useEffect(() => {
-    if (survey) {
-      setShowingIntro(!!survey.introText && survey.introText.trim().length > 0);
-    }
-  }, [survey]);
-
-  // Auto-play intro TTS when intro screen is shown
-  useEffect(() => {
-    if (showingIntro && survey?.introVoiceUrl && !isMuted && survey?.settings.voiceEnabled) {
-      playTTS(survey.introVoiceUrl);
-    }
-  }, [showingIntro, survey?.introVoiceUrl, isMuted]);
-
-  // Auto-play TTS when question changes (but not during intro)
-  useEffect(() => {
-    if (!showingIntro && currentQuestion?.voiceUrl && !isMuted && survey?.settings.voiceEnabled) {
+    if (currentQuestion?.voiceUrl && !isMuted && survey?.settings.voiceEnabled) {
       playTTS(currentQuestion.voiceUrl);
     }
-  }, [currentQuestion?.id, isMuted, showingIntro]);
+  }, [currentQuestion?.id, isMuted]);
 
   const playTTS = useCallback((url: string) => {
     if (audioElement) {

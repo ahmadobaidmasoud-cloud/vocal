@@ -31,8 +31,7 @@ export default function AnalyticsPage() {
 
     const headers = [
       isRTL ? 'رقم المشارك' : 'ID',
-      ...survey.questions.map((_, index) => isRTL ? `س${index + 1}` : `Q${index + 1}`),
-      isRTL ? 'التاريخ' : 'Date'
+      ...survey.questions.map((_, index) => isRTL ? `س${index + 1}` : `Q${index + 1}`)
     ];
 
     const rows = responses.map((response, responseIndex) => {
@@ -61,8 +60,7 @@ export default function AnalyticsPage() {
           }
           
           return displayValue;
-        }),
-        response.completedAt ? format(new Date(response.completedAt), 'yyyy-MM-dd HH:mm') : '-'
+        })
       ];
       
       return row;
@@ -138,9 +136,6 @@ export default function AnalyticsPage() {
                           {isRTL ? `س${index + 1}` : `Q${index + 1}`}
                         </TableHead>
                       ))}
-                      <TableHead className="min-w-[120px]" data-testid="table-header-date">
-                        {isRTL ? 'التاريخ' : 'Date'}
-                      </TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -183,9 +178,6 @@ export default function AnalyticsPage() {
                               </TableCell>
                             );
                           })}
-                          <TableCell className="text-sm text-muted-foreground" data-testid={`table-cell-date-${responseIndex + 1}`}>
-                            {response.completedAt ? format(new Date(response.completedAt), 'yyyy-MM-dd HH:mm') : '-'}
-                          </TableCell>
                         </TableRow>
                       );
                     })}

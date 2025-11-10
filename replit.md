@@ -62,13 +62,12 @@ VocalSurvey هي منصة استبيانات عربية-عالمية متقدم�
   - ترقيم تلقائي للمشاركين (ID: 1, 2, 3...)
   - عرض إجابات جميع الأسئلة في أعمدة (Q1, Q2, Q3...)
   - معالجة ذكية لأسئلة "both": عرض `scoreValue – textValue`
-  - عمود التاريخ بتنسيق yyyy-MM-dd HH:mm
   - دعم RTL/LTR كامل مع Shadcn Table component
 - **تصدير إلى Excel**:
   - مكتبة: `xlsx` (SheetJS)
   - صيغة الملف: `.xlsx`
   - اسم الملف: `{عنوان الاستبيان}_{الردود|responses}_{yyyy-MM-dd}.xlsx`
-  - محتوى الملف: نفس بنية الجدول (ID، س1، س2، التاريخ)
+  - محتوى الملف: نفس بنية الجدول (ID، س1، س2)
   - الزر يُعطّل عند عدم وجود ردود
 
 ## نموذج البيانات (Database Schema)
@@ -176,9 +175,28 @@ npm run db:push  # مزامنة Database schema
 ✅ Task 4: Speechmatics Upgrade - مكتمل (v2.0)
 ✅ Task 5: Analytics Simplified + Excel Export - مكتمل (v2.1)
 ✅ Task 6: Intro TTS + Auto-Complete + Ultra-Fast STT - مكتمل (v2.2)
-🚀 **Task 7: Microphone Permission Tutorial** - مكتمل! (النسخة 2.3)
+✅ Task 7: Microphone Permission Tutorial - مكتمل (v2.3)
+✅ **Task 8: Duplicate Submission Prevention** - مكتمل! (v2.4)
+✅ **Task 9: Skip Intro + Remove Date Column** - مكتمل! (v2.5)
 
 ## التحسينات المطبقة
+
+### v2.5 - Skip Intro + Remove Date Column (UX Improvements)
+1. ✅ **Skip Intro Page**: تجاوز صفحة الترحيب - الاستبيان يبدأ مباشرة بالسؤال الأول
+2. ✅ **Remove Date Column**: حذف عمود التاريخ من جدول التحليلات والـExcel export
+**التطبيق التقني**:
+- تغيير `showingIntro` من `true` إلى `false` في initial state
+- حذف عمود التاريخ من TableHeader, TableCell, Excel headers & rows
+
+### v2.4 - Duplicate Submission Prevention (Critical Bug Fix)
+1. ✅ **Race Condition Fix**: منع تكرار الإرسال بسبب auto-advance + voice commands
+2. ✅ **hasSubmittedRef Guard**: إضافة ref flag للحماية من التكرار
+3. ✅ **Retry Support**: try/catch لفتح القفل عند فشل الإرسال
+4. ✅ **Data Cleanup**: حذف 37 response مكرر + 74 answer مكرر
+**التطبيق التقني**:
+- `hasSubmittedRef` flag يُقفل على أول استدعاء لـhandleSubmit()
+- try/catch يفتح القفل عند الفشل للسماح بإعادة المحاولة
+- يبقى مقفولاً بشكل دائم بعد الإرسال الناجح
 
 ### v2.3 - Microphone Permission Tutorial (Mobile Fix)
 1. ✅ **Tutorial UI**: زر "🎤 اختبر الميكروفون" في صفحة المقدمة
