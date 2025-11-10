@@ -400,7 +400,6 @@ export default function ResponderPage() {
   const handleSubmit = async () => {
     // ⚠️ CRITICAL: Prevent duplicate submissions from auto-advance/voice commands/button clicks
     if (hasSubmittedRef.current) {
-      console.log('⛔ Submission already in progress or completed - ignoring duplicate call');
       return;
     }
     
@@ -409,33 +408,42 @@ export default function ResponderPage() {
     // Lock submission immediately (prevents race conditions)
     hasSubmittedRef.current = true;
     
-    // Use answersRef to get latest state (prevents stale state in rapid clicks/auto-advance)
-    const latestAnswers = answersRef.current;
-    const finalAnswers = { ...latestAnswers };
-    
-    // Ensure current question's answer is captured in the snapshot
-    if (currentQuestion) {
-      const currentAnswer = finalAnswers[currentQuestion.id] || {};
+    try {
+      // Use answersRef to get latest state (prevents stale state in rapid clicks/auto-advance)
+      const latestAnswers = answersRef.current;
+      const finalAnswers = { ...latestAnswers };
       
-      // Capture text for text/both questions (from editableText input)
-      if (currentQuestion.type === 'text' || currentQuestion.type === 'both') {
-        currentAnswer.textValue = editableText || currentAnswer.textValue;
+      // Ensure current question's answer is captured in the snapshot
+      if (currentQuestion) {
+        const currentAnswer = finalAnswers[currentQuestion.id] || {};
+        
+        // Capture text for text/both questions (from editableText input)
+        if (currentQuestion.type === 'text' || currentQuestion.type === 'both') {
+          currentAnswer.textValue = editableText || currentAnswer.textValue;
+        }
+        
+        finalAnswers[currentQuestion.id] = currentAnswer;
       }
+
+      const answersList: InsertAnswer[] = survey.questions.map(q => ({
+        responseId: '',
+        questionId: q.id,
+        scoreValue: finalAnswers[q.id]?.scoreValue || null,
+        textValue: finalAnswers[q.id]?.textValue || null,
+      }));
+
+      await submitResponseMutation.mutateAsync({
+        response: { surveyId },
+        answers: answersList,
+      });
       
-      finalAnswers[currentQuestion.id] = currentAnswer;
+      // Success - submission completed, keep flag locked
+    } catch (error) {
+      // Unlock flag to allow retry after failure
+      hasSubmittedRef.current = false;
+      console.error('Submission failed:', error);
+      // Error will be shown by mutation's onError handler or toast
     }
-
-    const answersList: InsertAnswer[] = survey.questions.map(q => ({
-      responseId: '',
-      questionId: q.id,
-      scoreValue: finalAnswers[q.id]?.scoreValue || null,
-      textValue: finalAnswers[q.id]?.textValue || null,
-    }));
-
-    await submitResponseMutation.mutateAsync({
-      response: { surveyId },
-      answers: answersList,
-    });
   };
 
   const toggleMic = () => {
