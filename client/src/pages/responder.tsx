@@ -397,7 +397,7 @@ export default function ResponderPage() {
   };
 
   const handleSubmit = async () => {
-    if (!survey || !surveyId) return;
+    if (!survey || !surveyId || submitResponseMutation.isPending) return;
     
     // Use answersRef to get latest state (prevents stale state in rapid clicks/auto-advance)
     const latestAnswers = answersRef.current;
