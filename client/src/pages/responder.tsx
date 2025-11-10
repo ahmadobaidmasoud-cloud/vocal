@@ -47,6 +47,7 @@ export default function ResponderPage() {
   const autoStartedRef = useRef<string | null>(null);
   const userStoppedManuallyRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const hasSubmittedRef = useRef(false); // ← Prevent duplicate submissions
   
   // Ref to track latest answers state (prevents stale state reads in rapid navigation)
   const answersRef = useRef(answers);
@@ -397,7 +398,16 @@ export default function ResponderPage() {
   };
 
   const handleSubmit = async () => {
+    // ⚠️ CRITICAL: Prevent duplicate submissions from auto-advance/voice commands/button clicks
+    if (hasSubmittedRef.current) {
+      console.log('⛔ Submission already in progress or completed - ignoring duplicate call');
+      return;
+    }
+    
     if (!survey || !surveyId || submitResponseMutation.isPending) return;
+    
+    // Lock submission immediately (prevents race conditions)
+    hasSubmittedRef.current = true;
     
     // Use answersRef to get latest state (prevents stale state in rapid clicks/auto-advance)
     const latestAnswers = answersRef.current;
