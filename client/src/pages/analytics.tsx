@@ -115,78 +115,82 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Responses Table */}
-        {totalResponses > 0 && (
-          <Card data-testid="card-responses-table">
-            <CardHeader>
-              <CardTitle>{isRTL ? 'جدول الردود' : 'Responses Table'}</CardTitle>
-              <CardDescription>
-                {isRTL ? 'عرض تفصيلي لجميع الردود' : 'Detailed view of all responses'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <Table data-testid="table-responses">
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="font-bold" data-testid="table-header-id">
-                        {isRTL ? 'رقم المشارك' : 'ID'}
-                      </TableHead>
-                      {survey.questions.map((question, index) => (
-                        <TableHead key={question.id} className="min-w-[150px]" data-testid={`table-header-q${index + 1}`}>
-                          {isRTL ? `س${index + 1}` : `Q${index + 1}`}
+          {totalResponses > 0 && (
+            <Card data-testid="card-responses-table">
+              <CardHeader>
+                <CardTitle>{isRTL ? 'جدول الردود' : 'Responses Table'}</CardTitle>
+                <CardDescription>
+                  {isRTL ? 'عرض تفصيلي لجميع الردود' : 'Detailed view of all responses'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <Table data-testid="table-responses">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="font-bold" data-testid="table-header-id">
+                          {isRTL ? 'رقم المشارك' : 'ID'}
                         </TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {responses?.map((response, responseIndex) => {
-                      const answersMap = new Map(response.answers.map(a => [a.questionId, a]));
-                      
-                      return (
-                        <TableRow key={response.id} data-testid={`table-row-${responseIndex + 1}`}>
-                          <TableCell className="font-medium" data-testid={`table-cell-id-${responseIndex + 1}`}>
-                            {responseIndex + 1}
-                          </TableCell>
-                          {survey.questions.map((question) => {
-                            const answer = answersMap.get(question.id);
-                            
-                            let displayValue = '-';
-                            if (question.type === 'both' && answer) {
-                              const score = answer.scoreValue !== null && answer.scoreValue !== undefined ? answer.scoreValue : null;
-                              const text = answer.textValue || null;
-                              if (score !== null && text !== null) {
-                                displayValue = `${score} – ${text}`;
-                              } else if (score !== null) {
-                                displayValue = String(score);
-                              } else if (text !== null) {
-                                displayValue = text;
+                        {survey.questions.map((question, index) => (
+                          <TableHead
+                            key={question.id}
+                            className="min-w-[150px]"
+                            data-testid={`table-header-q${index + 1}`}
+                          >
+                            {isRTL ? `س${index + 1}` : `Q${index + 1}`}
+                          </TableHead>
+                        ))}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {responses?.map((response, responseIndex) => {
+                        const answersMap = new Map(response.answers.map(a => [a.questionId, a]));
+
+                        return (
+                          <TableRow key={response.id} data-testid={`table-row-${responseIndex + 1}`}>
+                            <TableCell className="font-medium" data-testid={`table-cell-id-${responseIndex + 1}`}>
+                              {responseIndex + 1}
+                            </TableCell>
+                            {survey.questions.map((question, questionIndex) => {
+                              const answer = answersMap.get(question.id);
+
+                              let displayValue = '-';
+                              if (question.type === 'both' && answer) {
+                                const score = answer.scoreValue;
+                                const text = answer.textValue || null;
+                                if (score !== null && score !== undefined && text !== null) {
+                                  displayValue = `${score} – ${text}`;
+                                } else if (score !== null && score !== undefined) {
+                                  displayValue = String(score);
+                                } else if (text !== null) {
+                                  displayValue = text;
+                                }
+                              } else if (answer?.scoreValue !== null && answer?.scoreValue !== undefined) {
+                                displayValue = String(answer.scoreValue);
+                              } else if (answer?.textValue) {
+                                displayValue = answer.textValue;
                               }
-                            } else if (answer?.scoreValue !== null && answer?.scoreValue !== undefined) {
-                              displayValue = String(answer.scoreValue);
-                            } else if (answer?.textValue) {
-                              displayValue = answer.textValue;
-                            }
-                            
-                            return (
-                              <TableCell 
-                                key={question.id} 
-                                className="max-w-[200px] truncate"
-                                data-testid={`table-cell-response-${responseIndex + 1}-q${survey.questions.indexOf(question) + 1}`}
-                                title={displayValue}
-                              >
-                                {displayValue}
-                              </TableCell>
-                            );
-                          })}
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+
+                              return (
+                                <TableCell
+                                  key={question.id}
+                                  className="max-w-[200px] truncate"
+                                  data-testid={`table-cell-response-${responseIndex + 1}-q${questionIndex + 1}`}
+                                  title={displayValue}
+                                >
+                                  {displayValue}
+                                </TableCell>
+                              );
+                            })}
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
         {totalResponses === 0 && (
           <Card data-testid="empty-state-analytics">
