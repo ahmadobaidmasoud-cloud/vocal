@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 interface VoiceCommand {
   keywords: string[];
@@ -10,20 +10,45 @@ export function useVoiceCommands(
   commands: VoiceCommand[],
   language: 'ar' | 'en' = 'ar'
 ) {
+  const commandsRef = useRef(commands);
+  const lastProcessedTranscript = useRef<string>('');
+
   useEffect(() => {
-    if (!transcript) return;
+    commandsRef.current = commands;
+    lastProcessedTranscript.current = '';
+  }, [commands]);
+
+  useEffect(() => {
+    lastProcessedTranscript.current = '';
+  }, [language]);
+
+  useEffect(() => {
+    if (!transcript) {
+      lastProcessedTranscript.current = '';
+      return;
+    }
 
     const lowerTranscript = transcript.toLowerCase().trim();
+    if (!lowerTranscript) {
+      lastProcessedTranscript.current = '';
+      return;
+    }
 
-    for (const command of commands) {
+    if (lastProcessedTranscript.current === lowerTranscript) {
+      return;
+    }
+
+    lastProcessedTranscript.current = lowerTranscript;
+
+    for (const command of commandsRef.current) {
       for (const keyword of command.keywords) {
         if (lowerTranscript.includes(keyword.toLowerCase())) {
           command.action();
-          break;
+          return;
         }
       }
     }
-  }, [transcript, commands, language]);
+  }, [transcript]);
 }
 
 // Common voice commands in Arabic and English
