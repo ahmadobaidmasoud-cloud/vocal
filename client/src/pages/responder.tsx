@@ -48,6 +48,7 @@ export default function ResponderPage() {
   const userStoppedManuallyRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasSubmittedRef = useRef(false); // ← Prevent duplicate submissions
+  const userHasInteractedRef = useRef(false); // ← Track if user has interacted (required for iOS auto-play)
   
   // Ref to track latest answers state (prevents stale state reads in rapid navigation)
   const answersRef = useRef(answers);
@@ -101,18 +102,38 @@ export default function ResponderPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversationHistory, currentQuestionIndex]);
 
-  // Auto-play TTS when question changes
+  // Track user interaction (required for iOS auto-play)
   useEffect(() => {
-    if (currentQuestion?.voiceUrl && !isMuted && survey?.settings.voiceEnabled) {
+    const handleUserInteraction = () => {
+      userHasInteractedRef.current = true;
+    };
+    
+    // Listen for any user interaction
+    document.addEventListener('click', handleUserInteraction, { once: true });
+    document.addEventListener('touchstart', handleUserInteraction, { once: true });
+    
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('touchstart', handleUserInteraction);
+    };
+  }, []);
+
+  // Auto-play TTS when question changes (only if user has interacted)
+  useEffect(() => {
+    if (currentQuestion?.voiceUrl && !isMuted && survey?.settings.voiceEnabled && userHasInteractedRef.current) {
       playTTS(currentQuestion.voiceUrl);
     }
   }, [currentQuestion?.id, isMuted]);
 
-  const playTTS = useCallback((url: string) => {
+  const playTTS = useCallback(async (url: string) => {
     if (audioElement) {
       audioElement.pause();
     }
     const audio = new Audio(url);
+    
+    // Set audio attributes for better iOS compatibility
+    audio.preload = 'auto';
+    
     audio.onplay = () => setIsPlaying(true);
     audio.onended = () => {
       setIsPlaying(false);
@@ -120,10 +141,26 @@ export default function ResponderPage() {
         handleAutoStartListening();
       }
     };
-    audio.onerror = () => setIsPlaying(false);
-    audio.play();
-    setAudioElement(audio);
-  }, [audioElement, survey, currentQuestion]);
+    audio.onerror = () => {
+      setIsPlaying(false);
+      console.warn('Audio playback error - this may be due to iOS auto-play restrictions');
+    };
+    
+    try {
+      // audio.play() returns a Promise that may be rejected on iOS
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        await playPromise;
+      }
+      setAudioElement(audio);
+    } catch (error: any) {
+      // iOS Safari blocks auto-play without user interaction
+      console.warn('Auto-play blocked:', error.message);
+      setIsPlaying(false);
+      // Mark that we need user interaction for next attempt
+      userHasInteractedRef.current = false;
+    }
+  }, [audioElement, survey, currentQuestion, handleAutoStartListening]);
 
   const handleAutoStartListening = useCallback(() => {
     if (!isSupported || !survey?.settings.voiceEnabled || !currentQuestion) return;
@@ -181,6 +218,8 @@ export default function ResponderPage() {
   const handleNext = () => {
     if (!currentQuestion) return;
     
+    userHasInteractedRef.current = true; // User clicked - enable audio
+    
     // For text/both questions, update answersRef synchronously BEFORE reading it
     if (currentQuestion.type === 'text' || currentQuestion.type === 'both') {
       const newAnswers = {
@@ -220,6 +259,8 @@ export default function ResponderPage() {
 
   const handlePrevious = () => {
     if (currentQuestionIndex === 0) return;
+    
+    userHasInteractedRef.current = true; // User clicked - enable audio
     
     // ALWAYS save current answer to answersRef BEFORE navigating (prevents data loss for both score AND text)
     if (currentQuestion) {
@@ -265,6 +306,7 @@ export default function ResponderPage() {
   // Tutorial: Start mic permissions request
   const handleTutorialStart = async () => {
     if (!survey?.settings.voiceEnabled) return;
+    userHasInteractedRef.current = true; // User clicked button - enable audio
     setTutorialActive(true);
     resetTranscript();
     try {
@@ -282,6 +324,7 @@ export default function ResponderPage() {
 
   // Tutorial: Complete and start survey
   const handleTutorialComplete = () => {
+    userHasInteractedRef.current = true; // User clicked button - enable audio
     setTutorialActive(false);
     stopListening();
     resetTranscript();
@@ -331,6 +374,7 @@ export default function ResponderPage() {
         keywords: VOICE_COMMANDS.repeat[isRTL ? 'ar' : 'en'],
         action: () => {
           if (currentQuestion?.voiceUrl) {
+            userHasInteractedRef.current = true; // User explicitly requested replay
             playTTS(currentQuestion.voiceUrl);
           }
         },
@@ -356,6 +400,8 @@ export default function ResponderPage() {
 
   const handleScoreSelect = (score: number) => {
     if (!currentQuestion) return;
+    
+    userHasInteractedRef.current = true; // User clicked - enable audio
     
     // Update both ref AND state synchronously to prevent stale reads in rapid navigation
     const newAnswers = {
@@ -433,6 +479,7 @@ export default function ResponderPage() {
   };
 
   const toggleMic = () => {
+    userHasInteractedRef.current = true; // User clicked button - enable audio
     if (isListening) {
       stopListening();
       userStoppedManuallyRef.current = true;
@@ -683,7 +730,7 @@ export default function ResponderPage() {
           {currentQuestion && (
             <div className="space-y-4">
               {/* Current question bubble */}
-              <div className={`flex ${isRTL ? 'justify-end' : 'justify-start'} animate-fade-in`}>
+              <div className={`flex items-start gap-2 ${isRTL ? 'justify-end' : 'justify-start'} animate-fade-in`}>
                 <div 
                   className="max-w-[85%] md:max-w-[75%] bg-[#D4F4DD] rounded-2xl px-4 py-3 md:px-5 md:py-4 shadow-sm"
                   data-testid="active-question"
@@ -700,6 +747,21 @@ export default function ResponderPage() {
                     </Badge>
                   )}
                 </div>
+                
+                {/* Manual play button (especially useful for iOS) */}
+                {currentQuestion.voiceUrl && survey?.settings.voiceEnabled && !isMuted && (
+                  <button
+                    onClick={() => {
+                      userHasInteractedRef.current = true;
+                      playTTS(currentQuestion.voiceUrl!);
+                    }}
+                    className="flex-shrink-0 w-10 h-10 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center transition-all active:scale-95 shadow-md"
+                    title={isRTL ? 'تشغيل الصوت' : 'Play Audio'}
+                    data-testid="button-play-audio"
+                  >
+                    <Volume2 className="w-5 h-5" />
+                  </button>
+                )}
               </div>
 
               {/* Answer input area */}
