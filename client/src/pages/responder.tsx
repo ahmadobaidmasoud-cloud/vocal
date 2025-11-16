@@ -34,7 +34,8 @@ export default function ResponderPage() {
   const [, params] = useRoute('/survey/:id');
   const surveyId = params?.id;
 
-  const [showingIntro, setShowingIntro] = useState(false);
+  // Hybrid: Show intro only if voice is enabled (Option C)
+  const [showingIntro, setShowingIntro] = useState(true); // Start with true, will be set based on voiceEnabled
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [answers, setAnswers] = useState<Record<string, { scoreValue?: number; textValue?: string }>>({});
@@ -49,6 +50,7 @@ export default function ResponderPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasSubmittedRef = useRef(false); // ← Prevent duplicate submissions
   const userHasInteractedRef = useRef(false); // ← Track if user has interacted (required for iOS auto-play)
+  const audioContextRef = useRef<AudioContext | null>(null); // ← AudioContext for iOS unlock
   
   // Ref to track latest answers state (prevents stale state reads in rapid navigation)
   const answersRef = useRef(answers);
@@ -102,21 +104,38 @@ export default function ResponderPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversationHistory, currentQuestionIndex]);
 
-  // Track user interaction (required for iOS auto-play)
-  useEffect(() => {
-    const handleUserInteraction = () => {
-      userHasInteractedRef.current = true;
-    };
-    
-    // Listen for any user interaction
-    document.addEventListener('click', handleUserInteraction, { once: true });
-    document.addEventListener('touchstart', handleUserInteraction, { once: true });
-    
-    return () => {
-      document.removeEventListener('click', handleUserInteraction);
-      document.removeEventListener('touchstart', handleUserInteraction);
-    };
+  // AudioContext unlock for iOS (required for audio.play() to work)
+  const unlockAudio = useCallback(() => {
+    if (!audioContextRef.current) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        audioContextRef.current = new AudioContextClass();
+        
+        // Resume if suspended (iOS requirement)
+        if (audioContextRef.current.state === 'suspended') {
+          audioContextRef.current.resume().then(() => {
+            console.log('🔊 AudioContext unlocked for iOS');
+          }).catch(err => {
+            console.warn('Failed to unlock AudioContext:', err);
+          });
+        }
+        
+        userHasInteractedRef.current = true;
+      }
+    } else if (audioContextRef.current.state === 'suspended') {
+      audioContextRef.current.resume().catch(err => {
+        console.warn('Failed to resume AudioContext:', err);
+      });
+    }
   }, []);
+
+  // Hybrid: Skip intro if voice is disabled (Option C)
+  useEffect(() => {
+    if (survey && !survey.settings.voiceEnabled) {
+      // Skip intro for text-only surveys
+      setShowingIntro(false);
+    }
+  }, [survey]);
 
   // Auto-play TTS when question changes (only if user has interacted)
   useEffect(() => {
@@ -129,6 +148,7 @@ export default function ResponderPage() {
     if (audioElement) {
       audioElement.pause();
     }
+    
     const audio = new Audio(url);
     
     // Set audio attributes for better iOS compatibility
@@ -143,22 +163,24 @@ export default function ResponderPage() {
     };
     audio.onerror = () => {
       setIsPlaying(false);
-      console.warn('Audio playback error - this may be due to iOS auto-play restrictions');
+      console.warn('Audio playback error');
     };
     
+    // Safe Promise handling for iOS
     try {
-      // audio.play() returns a Promise that may be rejected on iOS
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         await playPromise;
       }
       setAudioElement(audio);
     } catch (error: any) {
-      // iOS Safari blocks auto-play without user interaction
-      console.warn('Auto-play blocked:', error.message);
       setIsPlaying(false);
-      // Mark that we need user interaction for next attempt
-      userHasInteractedRef.current = false;
+      if (error.name === 'NotAllowedError') {
+        console.warn('⚠️ Autoplay blocked - يحتاج تفاعل من المستخدم');
+        // Don't reset userHasInteractedRef here - let user try manually
+      } else {
+        console.error('Audio play error:', error);
+      }
     }
   }, [audioElement, survey, currentQuestion, handleAutoStartListening]);
 
@@ -306,7 +328,7 @@ export default function ResponderPage() {
   // Tutorial: Start mic permissions request
   const handleTutorialStart = async () => {
     if (!survey?.settings.voiceEnabled) return;
-    userHasInteractedRef.current = true; // User clicked button - enable audio
+    unlockAudio(); // ← Unlock AudioContext for iOS
     setTutorialActive(true);
     resetTranscript();
     try {
@@ -324,7 +346,7 @@ export default function ResponderPage() {
 
   // Tutorial: Complete and start survey
   const handleTutorialComplete = () => {
-    userHasInteractedRef.current = true; // User clicked button - enable audio
+    unlockAudio(); // ← Ensure audio is unlocked
     setTutorialActive(false);
     stopListening();
     resetTranscript();
@@ -374,7 +396,7 @@ export default function ResponderPage() {
         keywords: VOICE_COMMANDS.repeat[isRTL ? 'ar' : 'en'],
         action: () => {
           if (currentQuestion?.voiceUrl) {
-            userHasInteractedRef.current = true; // User explicitly requested replay
+            unlockAudio(); // ← Unlock AudioContext
             playTTS(currentQuestion.voiceUrl);
           }
         },
@@ -479,7 +501,7 @@ export default function ResponderPage() {
   };
 
   const toggleMic = () => {
-    userHasInteractedRef.current = true; // User clicked button - enable audio
+    unlockAudio(); // ← Unlock AudioContext
     if (isListening) {
       stopListening();
       userStoppedManuallyRef.current = true;
@@ -626,7 +648,10 @@ export default function ResponderPage() {
               {!tutorialActive ? (
                 <>
                   <Button
-                    onClick={survey.settings.voiceEnabled ? handleTutorialStart : () => setShowingIntro(false)}
+                    onClick={survey.settings.voiceEnabled ? handleTutorialStart : () => {
+                      unlockAudio(); // ← Unlock audio even for non-voice surveys
+                      setShowingIntro(false);
+                    }}
                     className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-xl"
                     data-testid="button-start"
                   >
@@ -752,7 +777,7 @@ export default function ResponderPage() {
                 {currentQuestion.voiceUrl && survey?.settings.voiceEnabled && !isMuted && (
                   <button
                     onClick={() => {
-                      userHasInteractedRef.current = true;
+                      unlockAudio(); // ← Unlock AudioContext before playing
                       playTTS(currentQuestion.voiceUrl!);
                     }}
                     className="flex-shrink-0 w-10 h-10 rounded-full bg-green-500 hover:bg-green-600 text-white flex items-center justify-center transition-all active:scale-95 shadow-md"
