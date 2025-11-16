@@ -34,7 +34,7 @@ export default function ResponderPage() {
   const [, params] = useRoute('/survey/:id');
   const surveyId = params?.id;
 
-  const [showingIntro, setShowingIntro] = useState(false);
+  const [showingIntro, setShowingIntro] = useState(true); // Enable intro to fix iOS autoplay
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [answers, setAnswers] = useState<Record<string, { scoreValue?: number; textValue?: string }>>({});
@@ -44,10 +44,12 @@ export default function ResponderPage() {
   const [editableText, setEditableText] = useState('');
   const [isCompleted, setIsCompleted] = useState(false);
   const [tutorialActive, setTutorialActive] = useState(false);
+  const [audioContextInitialized, setAudioContextInitialized] = useState(false);
   const autoStartedRef = useRef<string | null>(null);
   const userStoppedManuallyRef = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasSubmittedRef = useRef(false); // ← Prevent duplicate submissions
+  const audioContextRef = useRef<AudioContext | null>(null);
   
   // Ref to track latest answers state (prevents stale state reads in rapid navigation)
   const answersRef = useRef(answers);
@@ -59,6 +61,22 @@ export default function ResponderPage() {
     queryKey: ['/api/surveys', surveyId],
     enabled: !!surveyId,
   });
+
+  // Resume AudioContext when page becomes visible (iOS Safari fix)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && audioContextRef.current) {
+        if (audioContextRef.current.state === 'suspended') {
+          audioContextRef.current.resume().then(() => {
+            console.log('🔊 AudioContext resumed after page visibility change');
+          });
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   const { 
     transcript: taggedTranscript, 
@@ -108,10 +126,35 @@ export default function ResponderPage() {
     }
   }, [currentQuestion?.id, isMuted]);
 
+  // Initialize AudioContext on first user interaction (iOS Safari fix)
+  const initializeAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      try {
+        // @ts-ignore - AudioContext might not be in TS definitions
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        audioContextRef.current = new AudioContextClass();
+        // Resume context in case it's suspended
+        if (audioContextRef.current.state === 'suspended') {
+          audioContextRef.current.resume();
+        }
+        setAudioContextInitialized(true);
+        console.log('🔊 AudioContext initialized for iOS');
+      } catch (error) {
+        console.error('Failed to initialize AudioContext:', error);
+      }
+    }
+  }, []);
+
   const playTTS = useCallback((url: string) => {
     if (audioElement) {
       audioElement.pause();
     }
+    
+    // Initialize AudioContext if not already done (iOS Safari requirement)
+    if (!audioContextRef.current) {
+      initializeAudioContext();
+    }
+    
     const audio = new Audio(url);
     audio.onplay = () => setIsPlaying(true);
     audio.onended = () => {
@@ -120,10 +163,30 @@ export default function ResponderPage() {
         handleAutoStartListening();
       }
     };
-    audio.onerror = () => setIsPlaying(false);
-    audio.play();
+    audio.onerror = (e) => {
+      console.error('Audio playback error:', e);
+      setIsPlaying(false);
+    };
+    
+    // Play with error handling for iOS
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise
+        .then(() => {
+          console.log('✅ Audio playing successfully');
+        })
+        .catch((error) => {
+          console.error('❌ Audio play failed:', error);
+          setIsPlaying(false);
+          // Show user-friendly message if autoplay blocked
+          if (error.name === 'NotAllowedError') {
+            console.warn('Autoplay blocked - user interaction required');
+          }
+        });
+    }
+    
     setAudioElement(audio);
-  }, [audioElement, survey, currentQuestion]);
+  }, [audioElement, survey, currentQuestion, initializeAudioContext]);
 
   const handleAutoStartListening = useCallback(() => {
     if (!isSupported || !survey?.settings.voiceEnabled || !currentQuestion) return;
@@ -262,9 +325,13 @@ export default function ResponderPage() {
     setCurrentQuestionIndex(prev => Math.max(prev - 1, 0));
   };
 
-  // Tutorial: Start mic permissions request
+  // Tutorial: Start mic permissions request + Initialize AudioContext
   const handleTutorialStart = async () => {
     if (!survey?.settings.voiceEnabled) return;
+    
+    // CRITICAL: Initialize AudioContext on user click (iOS Safari requirement)
+    initializeAudioContext();
+    
     setTutorialActive(true);
     resetTranscript();
     try {
@@ -286,6 +353,11 @@ export default function ResponderPage() {
     stopListening();
     resetTranscript();
     setShowingIntro(false);
+    
+    // Try to play first question audio after user interaction
+    if (currentQuestion?.voiceUrl && !isMuted && survey?.settings.voiceEnabled) {
+      setTimeout(() => playTTS(currentQuestion.voiceUrl), 100);
+    }
   };
 
   // Tutorial voice command: Listen for "next" to complete tutorial
@@ -579,7 +651,15 @@ export default function ResponderPage() {
               {!tutorialActive ? (
                 <>
                   <Button
-                    onClick={survey.settings.voiceEnabled ? handleTutorialStart : () => setShowingIntro(false)}
+                    onClick={() => {
+                      // Initialize AudioContext on any user interaction (iOS fix)
+                      initializeAudioContext();
+                      if (survey.settings.voiceEnabled) {
+                        handleTutorialStart();
+                      } else {
+                        setShowingIntro(false);
+                      }
+                    }}
                     className="bg-green-500 hover:bg-green-600 text-white px-8 py-3 rounded-xl"
                     data-testid="button-start"
                   >
@@ -592,7 +672,11 @@ export default function ResponderPage() {
                   {survey.settings.voiceEnabled && (
                     <Button
                       variant="outline"
-                      onClick={() => setIsMuted(!isMuted)}
+                      onClick={() => {
+                        // Initialize AudioContext even when toggling mute (iOS fix)
+                        initializeAudioContext();
+                        setIsMuted(!isMuted);
+                      }}
                       className="px-4"
                       data-testid="button-toggle-sound"
                     >
@@ -607,7 +691,7 @@ export default function ResponderPage() {
                   className="px-6 py-3"
                   data-testid="button-skip-tutorial"
                 >
-                  {isRTL ? 'تخطي (بدون صوت)' : 'Skip (No Voice)'}
+                  {isRTL ? 'تخطي والمتابعة' : 'Skip & Continue'}
                 </Button>
               )}
             </div>
