@@ -34,7 +34,8 @@ export default function ResponderPage() {
   const [, params] = useRoute('/survey/:id');
   const surveyId = params?.id;
 
-  const [showingIntro, setShowingIntro] = useState(true); // Enable intro to fix iOS autoplay
+  // Option C (Hybrid): Show intro ONLY if voice is enabled (iOS audio unlock)
+  const [showingIntro, setShowingIntro] = useState(false); // Will be set based on survey settings
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [conversationHistory, setConversationHistory] = useState<ConversationMessage[]>([]);
   const [answers, setAnswers] = useState<Record<string, { scoreValue?: number; textValue?: string }>>({});
@@ -61,6 +62,15 @@ export default function ResponderPage() {
     queryKey: ['/api/surveys', surveyId],
     enabled: !!surveyId,
   });
+
+  // Option C (Hybrid): Show intro ONLY for voice-enabled surveys
+  useEffect(() => {
+    if (survey?.settings.voiceEnabled) {
+      setShowingIntro(true);
+    } else {
+      setShowingIntro(false);
+    }
+  }, [survey?.settings.voiceEnabled]);
 
   // Resume AudioContext when page becomes visible (iOS Safari fix)
   useEffect(() => {
@@ -772,11 +782,39 @@ export default function ResponderPage() {
                   className="max-w-[85%] md:max-w-[75%] bg-[#D4F4DD] rounded-2xl px-4 py-3 md:px-5 md:py-4 shadow-sm"
                   data-testid="active-question"
                 >
-                  <p className="text-gray-900 font-medium text-base md:text-lg leading-relaxed">
-                    {currentQuestion.text}
-                  </p>
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-gray-900 font-medium text-base md:text-lg leading-relaxed flex-1">
+                      {currentQuestion.text}
+                    </p>
+                    
+                    {/* Manual Play Button (Fallback for iOS autoplay issues) */}
+                    {currentQuestion.voiceUrl && survey?.settings.voiceEnabled && !isMuted && (
+                      <button
+                        onClick={() => {
+                          initializeAudioContext();
+                          playTTS(currentQuestion.voiceUrl!);
+                        }}
+                        className={`
+                          flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center
+                          transition-all hover:scale-110 active:scale-95
+                          ${isPlaying 
+                            ? 'bg-green-600 text-white cursor-default' 
+                            : 'bg-green-500 text-white hover:bg-green-600'
+                          }
+                        `}
+                        title={isRTL ? 'تشغيل السؤال صوتياً' : 'Play question audio'}
+                        data-testid="button-play-question"
+                      >
+                        {isPlaying ? (
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                          <Volume2 className="w-5 h-5" />
+                        )}
+                      </button>
+                    )}
+                  </div>
                   
-                  {/* Playing/Recording indicators */}
+                  {/* Playing indicator badge */}
                   {isPlaying && (
                     <Badge className="bg-green-600 text-white mt-2 text-xs">
                       <Volume2 className="w-3 h-3 mr-1" />

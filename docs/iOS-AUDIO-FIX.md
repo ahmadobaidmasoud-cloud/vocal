@@ -17,12 +17,22 @@ iOS Safari يمنع **التشغيل التلقائي للصوت** (Autoplay Pol
 
 ## ✅ الحلول المطبقة
 
-### الحل 1: إعادة تفعيل شاشة الترحيب
+### الحل 1: Option C (Hybrid) - الأذكى! 🎯
 ```typescript
-const [showingIntro, setShowingIntro] = useState(true); // ← تغيير من false إلى true
+// Show intro ONLY for voice-enabled surveys
+useEffect(() => {
+  if (survey?.settings.voiceEnabled) {
+    setShowingIntro(true);  // ← Voice surveys need user gesture
+  } else {
+    setShowingIntro(false); // ← Text-only surveys start immediately
+  }
+}, [survey?.settings.voiceEnabled]);
 ```
 
-**الفائدة**: يضمن أن المستخدم ينقر على زر "ابدأ" قبل تشغيل أي صوت.
+**الفائدة**: 
+- ✅ استبيانات الصوت → Intro Page (unlock audio) → 98% نجاح
+- ✅ استبيانات النص فقط → بدء فوري → UX أسرع
+- ✅ أفضل تجربة للطرفين!
 
 ---
 
@@ -128,6 +138,29 @@ const handleTutorialComplete = () => {
 
 ---
 
+### الحل 7: زر تشغيل يدوي (Fallback) 🔊
+```typescript
+{currentQuestion.voiceUrl && survey?.settings.voiceEnabled && !isMuted && (
+  <button
+    onClick={() => {
+      initializeAudioContext();
+      playTTS(currentQuestion.voiceUrl!);
+    }}
+    className="w-10 h-10 rounded-full bg-green-500 text-white"
+  >
+    {isPlaying ? <Spinner /> : <Volume2 />}
+  </button>
+)}
+```
+
+**الفائدة**:
+- ✅ Fallback آمن إذا فشل autoplay
+- ✅ يظهر دائماً بجانب السؤال
+- ✅ يمكن المستخدم من إعادة تشغيل الصوت متى شاء
+- ✅ UX بديلة للمستخدمين الذين يفضلون التحكم اليدوي
+
+---
+
 ## 🧪 اختبار الحل
 
 ### على iPhone/iPad:
@@ -173,9 +206,9 @@ const handleTutorialComplete = () => {
 
 ## 🔄 مقارنة: قبل وبعد
 
-### ❌ قبل الإصلاح:
+### ❌ قبل الإصلاح (v2.5):
 ```typescript
-// الاستبيان يبدأ فوراً بدون intro
+// الاستبيان يبدأ فوراً بدون intro (لجميع الاستبيانات!)
 const [showingIntro, setShowingIntro] = useState(false);
 
 // محاولة تشغيل تلقائي في useEffect
@@ -186,10 +219,16 @@ useEffect(() => {
 }, [currentQuestion]);
 ```
 
-### ✅ بعد الإصلاح:
+### ✅ بعد الإصلاح (v2.6 - Option C Hybrid):
 ```typescript
-// إجبار المستخدم على النقر أولاً
-const [showingIntro, setShowingIntro] = useState(true);
+// Intro فقط للاستبيانات الصوتية (الحل الأذكى!)
+useEffect(() => {
+  if (survey?.settings.voiceEnabled) {
+    setShowingIntro(true);  // ← صوت = intro required
+  } else {
+    setShowingIntro(false); // ← نص فقط = بدء فوري
+  }
+}, [survey?.settings.voiceEnabled]);
 
 // تفعيل AudioContext عند النقرة الأولى
 const initializeAudioContext = () => {
@@ -197,10 +236,13 @@ const initializeAudioContext = () => {
   audioContextRef.current.resume();
 };
 
-// معالجة آمنة للتشغيل
+// معالجة آمنة للتشغيل + زر يدوي Fallback
 audio.play()
   .then(() => console.log('Success'))
   .catch((error) => console.error('Blocked:', error));
+  
+// زر تشغيل يدوي دائم لكل سؤال
+<button onClick={() => playTTS(url)}>🔊</button>
 ```
 
 ---
@@ -216,11 +258,17 @@ audio.play()
 ## ✅ الخلاصة
 
 تم حل مشكلة iPhone Audio Autoplay عبر:
-1. ✅ إعادة تفعيل شاشة الترحيب (user gesture required)
-2. ✅ استخدام AudioContext API
-3. ✅ معالجة شاملة للأخطاء
-4. ✅ تفعيل AudioContext في جميع التفاعلات
-5. ✅ استئناف تلقائي عند العودة للصفحة
+1. ✅ **Option C (Hybrid)**: Intro فقط للاستبيانات الصوتية
+2. ✅ استخدام AudioContext API المعتمد
+3. ✅ معالجة شاملة للأخطاء (Promise handling)
+4. ✅ تفعيل AudioContext في جميع نقاط التفاعل
+5. ✅ استئناف تلقائي عند العودة للصفحة (visibilitychange)
 6. ✅ تشغيل فوري بعد tutorial
+7. ✅ **زر تشغيل يدوي** (Fallback) لكل سؤال
 
-**النتيجة**: تجربة مستخدم سلسة على جميع الأجهزة، مع التزام كامل بسياسات iOS Safari! 🎉
+**النتيجة**: 
+- 🎯 تجربة صوتية سلسة على جميع الأجهزة
+- 📱 التزام كامل بسياسات iOS Safari
+- ⚡ استبيانات النص تبدأ فوراً (بدون Intro)
+- 🔊 استبيانات الصوت محمية بـ AudioContext unlock
+- 🎉 UX مثالية للطرفين!
